@@ -19,21 +19,22 @@ class Server:
             address=("", self.port_number),
             family=socket.AF_INET
         )
-        try:
-            while True:
-                # Read first 1024 bytes to get headers
+        self.server.settimeout(1.0)
+        while True:
+            # Read first 1024 bytes to get headers
+            try:
                 client, addr = self.server.accept()
                 pprint(f"Connected by {addr}")
                 headers = self.read_header(client)
-
                 # Generate Request object
                 request: Request = RequestFactory(headers.split("\r\n")).create_request()
                 pprint(request)
-                
                 #Implement Logic for Request
-
-        except KeyboardInterrupt:
-            print("Server Stopped")
+            except TimeoutError:
+                continue
+            except KeyboardInterrupt:
+                print("Server Stopped")
+                break
     
     def read_header(self, client:any) -> str:
         data = b""

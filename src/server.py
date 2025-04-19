@@ -4,12 +4,13 @@ from pprint import pprint
 
 from src.request_factory import RequestFactory
 from src.requests.request import Request
-
+from src.api import Api
 
 class Server:
 
     server:socket
     port_number:int
+    api:Api
 
     def __init__(self, port_number: int) -> None:
         self.port_number = port_number
@@ -19,7 +20,9 @@ class Server:
             address=("", self.port_number),
             family=socket.AF_INET
         )
+        self.api = Api()
         self.server.settimeout(1.0)
+        print("Server listening on port", self.port_number)
         while True:
             # Read first 1024 bytes to get headers
             try:
@@ -28,8 +31,8 @@ class Server:
                 headers = self.read_header(client)
                 # Generate Request object
                 request: Request = RequestFactory(headers.split("\r\n")).create_request()
-                pprint(request)
-                #Implement Logic for Request
+                if(request.path.startswith("/api")):
+                    self.api.handle(client, addr, request)
             except TimeoutError:
                 continue
             except KeyboardInterrupt:

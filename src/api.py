@@ -35,6 +35,6 @@ class Api:
             "OK"
         )
 
-        client.sendall(response)
+        client.sendall(response.encode())
         client.close()
 

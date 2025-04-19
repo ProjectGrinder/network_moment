@@ -33,6 +33,9 @@ class Server:
                 request: Request = RequestFactory(headers.split("\r\n")).create_request()
                 if(request.path.startswith("/api")):
                     self.api.handle(client, addr, request)
+                else:
+                    client.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+                    client.close()
             except TimeoutError:
                 continue
             except KeyboardInterrupt:

@@ -28,9 +28,10 @@ class Server:
             try:
                 client, addr = self.server.accept()
                 pprint(f"Connected by {addr}")
-                headers = self.read_header(client)
+                headers, data_part = self.read_header(client)
                 # Generate Request object
                 request: Request = RequestFactory(headers.split("\r\n")).create_request()
+                request.body += data_part
                 if(request.path.startswith("/api")):
                     self.api.handle(client, addr, request)
                 else:
@@ -51,7 +52,7 @@ class Server:
             if b'\r\n\r\n' in data:
                 headers, data = data.split(b'\r\n\r\n', 1)
                 break
-        return headers.decode('utf-8')
+        return headers.decode('utf-8'), data
 
     def __del__(self) -> None:
         self.server.close()

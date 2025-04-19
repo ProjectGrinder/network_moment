@@ -1,5 +1,8 @@
 from pprint import pprint
 
+from src.requests.request import Request
+from src.requests.type import REQUEST_TYPE
+
 class User:
     name: str
     pfp: int
@@ -23,7 +26,18 @@ class Api:
         self.users = []
         self.groups = []
 
-    def handle(self, client, addr, request):
+    def handle(self, client, addr, request: Request):
+        pprint("Handling request...")
+        if(request.type == REQUEST_TYPE.POST):
+            content_length = int(request.header.get_header("Content-Length"))
+            while len(request.body) < content_length: # in case of funky long ass data
+                chunk = client.recv(1024)
+                if not chunk:
+                    pprint("Connection closed by client.")
+                    break
+                request.body += chunk
+            pprint("Received request body.")
+
         pprint(request)
         #Implement Logic for Request
 

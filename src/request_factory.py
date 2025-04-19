@@ -27,4 +27,4 @@ class RequestFactory:
         for head in self.headers[1:]:
             key, value = head.split(": ")
             header.add_header(key, value)
-        return Request(self.headers[0].split(" ")[1], header, None, self.get_request_type())
+        return Request(self.headers[0].split(" ")[1], header, b'', self.get_request_type())

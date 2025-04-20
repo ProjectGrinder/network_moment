@@ -229,7 +229,7 @@ class Api:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
-            user = message_data["user"]
+            target = message_data["user"]
             token = message_data["token"]
 
             this_chat = None
@@ -242,7 +242,7 @@ class Api:
             
             this_user = None
             for user in self.users:
-                if user.name == user:
+                if user.name == target:
                     this_user = user
             if this_user == None:
                 return make_response("Not Found", 404)
@@ -267,7 +267,7 @@ class Api:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
-            user = message_data["user"]
+            target = message_data["user"]
             token = message_data["token"]
 
             this_chat = None
@@ -280,7 +280,7 @@ class Api:
             
             this_user = None
             for user in self.users:
-                if user.name == user:
+                if user.name == target:
                     this_user = user
             if this_user == None:
                 return make_response("Not Found", 404)
@@ -330,7 +330,7 @@ class Api:
                 return make_response("Forbidden", 403)
             
             if this_chat.public:
-                return make_response("Cannot remove user from a public room", 200)
+                return make_response("Cannot remove user from a public room", 400)
 
             if this_user not in this_chat.whitelist:
                 return make_response("Not Found", 404)

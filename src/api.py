@@ -12,7 +12,7 @@ class User:
         self.name = name
         self.pfp = pfp
 
-class Group:
+class Chat:
     name: str
     admin: list[User]
     def __init__(self, name, admin):
@@ -21,11 +21,13 @@ class Group:
 
 class Api:
     users: list[User]
-    groups: list[Group]
+    groups: list[Chat]
+    sse_clients: set
 
     def __init__(self):
         self.users = []
         self.groups = []
+        self.sse_clients = set()
 
     async def handle(self, loop: asyncio.AbstractEventLoop, client, addr, request: Request):
         pprint(request)
@@ -34,6 +36,9 @@ class Api:
         path = request.path
 
         response = None
+
+        if method == REQUEST_TYPE.GET and path == "/api/status":
+            response = await self.status(request)
 
         if method == REQUEST_TYPE.GET and path == "/api/chat":
             response = await self.get_all_chats(request)
@@ -64,7 +69,7 @@ class Api:
             response = await self.register_user(request)
 
         elif method == REQUEST_TYPE.GET and path == "/api/events":
-            await self.handle_sse(client, request)
+            await self.handle_sse(loop, client, request)
             return  # SSE doesn't send a one-shot response — it's streamed
 
         else:
@@ -114,6 +119,41 @@ class Api:
         return make_response("Not Implemented", 501)
 
     # GET /api/events (SSE)
-    async def handle_sse(self, client, request: Request) -> None:
-        # SSE doesn't return a one-shot response, it's a stream
-        pass
+    async def handle_sse(self, loop, client, request: Request) -> None:
+
+        headers = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/event-stream\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n"
+        )
+
+        # Send keep-alive header
+        await loop.sock_sendall(client, headers.encode())
+
+        self.sse_clients.add(client)
+        try:
+            while True:
+                # Example: send a heartbeat event every 10 seconds
+                await asyncio.sleep(10)
+                msg = "event: heartbeat\ndata: ping\n\n"
+                await loop.sock_sendall(client, msg.encode())
+        except (ConnectionResetError, BrokenPipeError):
+            # Client disconnected
+            pass
+        finally:
+            self.sse_clients.discard(client)
+            client.close()
+    
+    # SSE methods
+
+    async def broadcast_event(self, data: str):
+        loop = asyncio.get_running_loop()
+        msg = f"data: {data}\n\n"
+        for client in list(self.sse_clients):
+            try:
+                await loop.sock_sendall(client, msg.encode())
+            except (ConnectionResetError, BrokenPipeError):
+                self.sse_clients.discard(client)
+                client.close()

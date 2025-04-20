@@ -1,8 +1,10 @@
 from pprint import pprint
 import asyncio
+import json
 from src.requests.request import Request
 from src.requests.type import REQUEST_TYPE
 from src.response import make_response
+from src.requests.header import Header
 
 class User:
     name: str
@@ -15,9 +17,14 @@ class User:
 class Chat:
     name: str
     admin: list[User]
-    def __init__(self, name, admin):
+    public: bool
+    whitelist: list[User]
+
+    def __init__(self, name, admin, public):
         self.name = name
         self.admin = admin
+        self.public = public
+        self.whitelist = []
 
 class Api:
     users: list[User]
@@ -44,23 +51,27 @@ class Api:
             response = await self.get_all_chats(request)
 
         elif method == REQUEST_TYPE.POST and path.startswith("/api/chat/") and path.count("/") == 3:
-            chat_id = path.split("/")[-1]
-            response = await self.post_chat_message(request, chat_id)
+            chatname = path.split("/")[-1]
+            response = await self.post_chat_message(request, chatname)
 
         elif method == REQUEST_TYPE.POST and path == "/api/chat/create":
             response = await self.create_chat(request)
 
-        elif method == REQUEST_TYPE.GET and path.startswith("/api/chat/") and path.endswith("/join"):
-            chat_id = path.split("/")[3]
-            response = await self.join_chat(request, chat_id)
+        elif method == REQUEST_TYPE.POST and path.startswith("/api/chat/") and path.endswith("/join") and path.count("/") == 4:
+            chatname = path.split("/")[3]
+            response = await self.join_chat(request, chatname)
 
-        elif method == REQUEST_TYPE.PUT and path.startswith("/api/chat/") and path.count("/") == 3:
-            chat_id = path.split("/")[-1]
-            response = await self.approve_join(request, chat_id)
+        elif method == REQUEST_TYPE.PUT and path.startswith("/api/chat/") and path.endswith("/approve") and path.count("/") == 4:
+            chatname = path.split("/")[3]
+            response = await self.approve_join(request, chatname)
+
+        elif method == REQUEST_TYPE.DELETE and path.startswith("/api/chat/") and path.endswith("/reject") and path.count("/") == 4:
+            chatname = path.split("/")[3]
+            response = await self.reject_join(request, chatname)
 
         elif method == REQUEST_TYPE.DELETE and path.startswith("/api/chat/") and path.count("/") == 3:
-            chat_id = path.split("/")[-1]
-            response = await self.remove_user(request, chat_id)
+            chatname = path.split("/")[-1]
+            response = await self.remove_user(request, chatname)
 
         elif method == REQUEST_TYPE.GET and path == "/api/users":
             response = await self.get_users(request)
@@ -88,35 +99,189 @@ class Api:
 
     # GET /api/chat
     async def get_all_chats(self, request: Request) -> str:
-        return make_response("Not Implemented", 501)
+        return make_response(json.dumps(self.groups.__dict__), 200)
 
-    # POST /api/chat/:chat_id
-    async def post_chat_message(self, request: Request, chat_id: str) -> str:
-        return make_response("Not Implemented", 501)
+    # POST /api/chat/:chatname
+    async def post_chat_message(self, request: Request, chatname: str) -> str:
+        try:
+            message_data = json.loads(request.body)
+
+            if "message" not in message_data:
+                return make_response("Bad Request", 400)
+            
+            if "user" not in message_data:
+                return make_response("Bad Request", 400)
+            
+            message = message_data["message"]
+            user = message_data["user"]
+            
+            this_chat = None
+            for group in self.groups:
+                if group.name == chatname:
+                    this_chat = group
+                    break
+            if this_chat == None:
+                return make_response("Not Found", 404)
+            
+            if (not this_chat.public) and (user not in this_chat.whitelist):
+                return make_response("Forbidden", 403)
+
+            await self.broadcast_event("chat-message", json.dumps({"chatname": chatname, "user": user, "message": message}))
+
+            return make_response("OK", 200)
+        
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
 
     # POST /api/chat/create
     async def create_chat(self, request: Request) -> str:
-        return make_response("Not Implemented", 501)
+        try:
+            message_data = json.loads(request.body)
+            name = message_data["name"]
+            user = message_data["user"]
+            public = message_data["public"]
 
-    # GET /api/chat/:chat_id/join
-    async def join_chat(self, request: Request, chat_id: str) -> str:
-        return make_response("Not Implemented", 501)
+            this_chat = Chat(name, user, public)
+            if not this_chat.public:
+                this_chat.whitelist.append(user)
+            
+            await self.broadcast_event("chat-message", json.dumps(this_chat.__dict__))
 
-    # PUT /api/chat/:chat_id
-    async def approve_join(self, request: Request, chat_id: str) -> str:
-        return make_response("Not Implemented", 501)
+            return make_response("Created", 201)
 
-    # DELETE /api/chat/:chat_id
-    async def remove_user(self, request: Request, chat_id: str) -> str:
-        return make_response("Not Implemented", 501)
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
+
+    # GET /api/chat/:chatname/join
+    async def join_chat(self, request: Request, chatname: str) -> str:
+        try:
+            message_data = json.loads(request.body)
+            user = message_data["user"]
+
+            this_chat = None
+            for chat in self.groups:
+                if chat.name == chatname:
+                    this_chat = chat
+                    break
+            if this_chat == None:
+                return make_response("Not Found", 404)
+            
+            if this_chat.public:
+                return make_response(json.dumps({"message": "Public room. You can join directly."}), 200, "application/json")
+            
+            await self.broadcast_event("join-request", json.dumps({"chatname": chatname, "user": user}))
+
+            return make_response("OK", 200)
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
+
+    # PUT /api/chat/:chatname/approve
+    async def approve_join(self, request: Request, chatname: str) -> str:
+        try:
+            message_data = json.loads(request.body)
+            user = message_data["user"]
+
+            this_chat = None
+            for chat in self.groups:
+                if chat.name == chatname:
+                    this_chat = chat
+                    break
+            if this_chat == None:
+                return make_response("Not Found", 404)
+            
+            if(user not in [user.name for user in self.users]):
+                return make_response("Not Found", 404)
+            
+            # MISSING: admin authorization (403 Forbidden)
+            this_chat.whitelist.append(user)
+            await self.broadcast_event("approve-join-request", json.dumps({"chatname": chatname, "user": user}))
+
+            return make_response("OK", 200)
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
+    
+    # PUT /api/chat/:chatname/reject
+    async def reject_join(self, request: Request, chatname: str) -> str:
+        try:
+            message_data = json.loads(request.body)
+            user = message_data["user"]
+
+            this_chat = None
+            for chat in self.groups:
+                if chat.name == chatname:
+                    this_chat = chat
+                    break
+            if this_chat == None:
+                return make_response("Not Found", 404)
+            
+            if(user not in [user.name for user in self.users]):
+                return make_response("Not Found", 404)
+            
+            # MISSING: admin authorization (403 Forbidden)
+            
+            await self.broadcast_event("reject-join-request", json.dumps({"chatname": chatname, "user": user}))
+
+            return make_response("OK", 200)
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
+
+    # DELETE /api/chat/:chatname
+    async def remove_user(self, request: Request, chatname: str) -> str:
+        try:
+            message_data = json.loads(request.body)
+            user = message_data["user"]
+
+            this_chat = None
+            for chat in self.groups:
+                if chat.name == chatname:
+                    this_chat = chat
+                    break
+            if this_chat == None:
+                return make_response("Not Found", 404)
+            
+            if(user not in [user.name for user in self.users]):
+                return make_response("Not Found", 404)
+
+            if(user not in this_chat.whitelist):
+                return make_response("Not Found", 404)
+            
+            # MISSING: admin authorization (403 Forbidden)
+
+            this_chat.whitelist.remove(user)
+            
+            await self.broadcast_event("remove-user", json.dumps({"chatname": chatname, "user": user}))
+
+            return make_response("OK", 200)
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
 
     # GET /api/users
     async def get_users(self, request: Request) -> str:
-        return make_response("Not Implemented", 501)
+        return make_response(json.dumps(self.users.__dict__), 200)
 
     # POST /api/users
     async def register_user(self, request: Request) -> str:
-        return make_response("Not Implemented", 501)
+        try:
+            message_data = json.loads(request.body)
+            user = message_data["user"]
+            pfp = message_data["pfp"]
+
+            
+            if(user in [user.name for user in self.users]):
+                return make_response("Conflict", 409)
+
+            self.users.append(user)
+            
+            await self.broadcast_event("register-user", json.dumps({"user": user}))
+
+            return make_response("OK", 200)
+
+        except (json.JSONDecodeError, KeyError) as e:
+            return make_response("Bad Request", 400)
 
     # GET /api/events (SSE)
     async def handle_sse(self, loop, client, request: Request) -> None:
@@ -148,9 +313,9 @@ class Api:
     
     # SSE methods
 
-    async def broadcast_event(self, data: str):
+    async def broadcast_event(self, event: str, data: str):
         loop = asyncio.get_running_loop()
-        msg = f"data: {data}\n\n"
+        msg = f"event: {event}\ndata: {data}\n\n"
         for client in list(self.sse_clients):
             try:
                 await loop.sock_sendall(client, msg.encode())

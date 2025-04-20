@@ -2,6 +2,7 @@ from pprint import pprint
 
 from src.requests.request import Request
 from src.requests.type import REQUEST_TYPE
+from src.response import make_response
 
 class User:
     name: str
@@ -21,23 +22,15 @@ class Group:
 class Api:
     users: list[User]
     groups: list[Group]
+    routes: dict[str, any]
 
     def __init__(self):
         self.users = []
         self.groups = []
 
     async def handle(self, client, addr, request: Request):
-        # all data is complete from server handling connection and data for api
         pprint(request)
-        #Implement Logic for Request
-
-        response = (
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 0\r\n"
-            "\r\n"
-        )
-
+        response = make_response("OK")
         client.sendall(response.encode())
         client.close()
 

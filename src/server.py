@@ -2,7 +2,9 @@ import socket
 from pprint import pprint
 
 
+from src.requests.type import REQUEST_TYPE
 from src.request_factory import RequestFactory
+from src.response import make_response
 from src.requests.request import Request
 from src.api import Api
 import asyncio
@@ -55,33 +57,39 @@ class Server:
             request: Request = RequestFactory(headers.split("\r\n")).create_request()
             request.body += data_part.decode()
 
-            content_length = int(request.header.get_header("Content-Length"))
+            if request.type in [REQUEST_TYPE.POST, REQUEST_TYPE.PUT]:
+                content_length = request.header.get_header("Content-Length")
 
-            if content_length is None:
-                response = (
-                    "HTTP/1.1 400 Bad Request\r\n"
-                    "Content-Type: text/plain\r\n"
-                    "Content-Length: 0\r\n\r\n"
-                )
-                client.sendall(response.encode())
-                client.close()
-                return
+                if content_length is None:
+                    response = make_response(status=400)
+                    client.sendall(response.encode())
+                    client.close()
+                    return
+                
+                try:
+                    content_length = int(content_length)
+                except ValueError:
+                    response = make_response(status=400)
+                    client.sendall(response.encode())
+                    client.close()
+                    return 
 
-            current_length = len(request.body.encode())
-            while current_length < content_length:
-                more = await loop.sock_recv(client, content_length - current_length)
-                if not more:
-                    break
-                request.body += more.decode()
-                current_length += len(more)
+                current_length = len(request.body.encode())
+                while current_length < content_length:
+                    more = await loop.sock_recv(client, content_length - current_length)
+                    if not more:
+                        break
+                    request.body += more.decode()
+                    current_length += len(more)
 
             if request.path.startswith("/api"):
                 await self.api.handle(client, addr, request)
             else:
                 # frontend adds routes here later
-                response = b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n"
+                response = make_response(status=404)
                 await loop.sock_sendall(client, response)
                 client.close()
+            return
 
         except Exception as e:
             pprint(f"Error handling {addr}: {e}")

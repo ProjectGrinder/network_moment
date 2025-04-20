@@ -7,14 +7,17 @@ from src.requests.request import Request
 from src.requests.type import REQUEST_TYPE
 from src.response import make_response
 from src.requests.header import Header
+import secrets
 
 class User:
     name: str
     pfp: int
+    token: str
 
-    def __init__(self, name, pfp):
+    def __init__(self, name, pfp, token):
         self.name = name
         self.pfp = pfp
+        self.token = token
 
 class Chat:
     name: str
@@ -24,7 +27,7 @@ class Chat:
 
     def __init__(self, name, admin, public):
         self.name = name
-        self.admin = admin
+        self.admin = [admin]
         self.public = public
         self.whitelist = []
 
@@ -61,8 +64,9 @@ class Api:
         elif method == REQUEST_TYPE.POST and path == "/api/users": #OK
             response = await self.register_user(request)
 
-        elif method == REQUEST_TYPE.GET and path == "/api/events": #OK
-            await self.handle_sse(loop, client, request)
+        elif method == REQUEST_TYPE.GET and path.startswith("/api/events"):
+            token = path.split("/")[-1]
+            await self.handle_sse(loop, client, request, token)
             return
 
         elif method == REQUEST_TYPE.POST and path.startswith("/api/chat/") and path.count("/") == 3:
@@ -112,12 +116,20 @@ class Api:
             if "message" not in message_data:
                 return make_response("Bad Request", 400)
             
-            if "user" not in message_data:
+            if "token" not in message_data:
                 return make_response("Bad Request", 400)
             
             message = message_data["message"]
-            user = message_data["user"]
-            
+            token = message_data["token"]
+
+            this_user = None
+            for user in self.users:
+                if user.token == token:
+                    this_user = user
+                    break
+            if this_user == None:
+                return make_response("Forbidden", 403)
+
             this_chat = None
             for group in self.groups:
                 if group.name == chatname:
@@ -129,7 +141,14 @@ class Api:
             if (not this_chat.public) and (user not in this_chat.whitelist):
                 return make_response("Forbidden", 403)
 
-            await self.broadcast_event("chat-message", json.dumps({"chatname": quote(chatname), "user": user, "message": message}))
+            await self.broadcast_event("chat-message", 
+                                       json.dumps({
+                                           "chatname": quote(chatname), 
+                                           "user": {
+                                               "name": this_user.name, 
+                                               "pfp": this_user.pfp
+                                               }, 
+                                            "message": message}))
 
             return make_response("OK", 200)
         
@@ -141,21 +160,34 @@ class Api:
             message_data = json.loads(request.body)
 
             name = message_data["name"]
-            user = message_data["user"]
+            token = message_data["token"]
             public = message_data["public"]
 
-            if user not in [user.name for user in self.users]:
-                return make_response("Not Found", 404)
+            this_user = None
+            for user in self.users:
+                if user.token == token:
+                    this_user = user
+            if(this_user == None):
+                return make_response("Forbidden", 403)
 
             this_chat = Chat(name, user, public)
             if not this_chat.public:
-                this_chat.whitelist.append(user)
+                this_chat.whitelist.append(this_user)
 
             self.groups.append(this_chat)
 
-            chat_message = this_chat.__dict__
-            chat_message["name"] = quote(this_chat.name)
-            await self.broadcast_event("chat-message", json.dumps(chat_message))
+            message = this_chat.__dict__
+            message["name"] = quote(this_chat.name)
+            message["admin"] = {"name": this_user.name, "pfp": this_user.pfp}
+            await self.broadcast_event("create_chat", json.dumps({
+                "name": this_chat.name,
+                "admin": {
+                    "name": this_user.name,
+                    "pfp": this_user.pfp
+                },
+                "public": this_chat.public,
+                "whitelist": [{"name": user.name, "pfp": user.pfp} for user in this_chat.whitelist]
+            }))
 
             return make_response("Created", 201)
 
@@ -164,7 +196,15 @@ class Api:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
-            user = message_data["user"]
+            token = message_data["token"]
+
+            this_user = None
+            for user in self.users:
+                if user.token == token:
+                    this_user = user
+                    break
+            if this_user == None:
+                return make_response("Forbidden", 403)
 
             this_chat = None
             for chat in self.groups:
@@ -177,7 +217,7 @@ class Api:
             if this_chat.public:
                 return make_response(json.dumps({"message": "Public room. You can join directly."}), 200, "application/json")
             
-            await self.broadcast_event("join-request", json.dumps({"chatname": quote(chatname), "user": user}))
+            await self.broadcast_event("join-request", json.dumps({"chatname": quote(chatname), "user": {"name": this_user.name, "pfp": this_user.pfp}}))
 
             return make_response("OK", 200)
 
@@ -190,6 +230,7 @@ class Api:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
+            token = message_data["token"]
 
             this_chat = None
             for chat in self.groups:
@@ -199,24 +240,35 @@ class Api:
             if this_chat == None:
                 return make_response("Not Found", 404)
             
-            if(user not in [user.name for user in self.users]):
+            this_user = None
+            for user in self.users:
+                if user.name == user:
+                    this_user = user
+            if this_user == None:
                 return make_response("Not Found", 404)
             
-            # MISSING: admin authorization (403 Forbidden)
-            this_chat.whitelist.append(user)
-            await self.broadcast_event("approve-join-request", json.dumps({"chatname": quote(chatname), "user": user}))
+            this_admin = None
+            for admin in this_chat.admin:
+                if admin.token == token:
+                    this_admin = token
+            if this_admin == None:
+                return make_response("Forbidden", 403)
+            
+            this_chat.whitelist.append(this_user)
+            await self.broadcast_event("approve-join-request", json.dumps({"chatname": quote(chatname), "user": {"name": this_user.name, "pfp": this_user.pfp}}))
 
             return make_response("OK", 200)
 
         except (json.JSONDecodeError, KeyError) as e:
             return make_response("Bad Request", 400)
     
-    # PUT /api/chat/:chatname/reject
+    # DELETE /api/chat/:chatname/reject
     async def reject_join(self, request: Request, chatname: str) -> str:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
+            token = message_data["token"]
 
             this_chat = None
             for chat in self.groups:
@@ -226,12 +278,21 @@ class Api:
             if this_chat == None:
                 return make_response("Not Found", 404)
             
-            if(user not in [user.name for user in self.users]):
+            this_user = None
+            for user in self.users:
+                if user.name == user:
+                    this_user = user
+            if this_user == None:
                 return make_response("Not Found", 404)
             
-            # MISSING: admin authorization (403 Forbidden)
+            this_admin = None
+            for admin in this_chat.admin:
+                if admin.token == token:
+                    this_admin = token
+            if this_admin == None:
+                return make_response("Forbidden", 403)
             
-            await self.broadcast_event("reject-join-request", json.dumps({"chatname": quote(chatname), "user": user}))
+            await self.broadcast_event("reject-join-request", json.dumps({"chatname": quote(chatname), "user": {"name": this_user.name, "pfp": this_user.pfp}}))
 
             return make_response("OK", 200)
 
@@ -244,6 +305,7 @@ class Api:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
+            token = message_data["token"]
 
             this_chat = None
             for chat in self.groups:
@@ -253,17 +315,29 @@ class Api:
             if this_chat == None:
                 return make_response("Not Found", 404)
             
-            if(user not in [user.name for user in self.users]):
-                return make_response("Not Found", 404)
-
-            if(user not in this_chat.whitelist):
+            this_user = None
+            for user in self.users:
+                if user.name == user:
+                    this_user = user
+            if this_user == None:
                 return make_response("Not Found", 404)
             
-            # MISSING: admin authorization (403 Forbidden)
-
-            this_chat.whitelist.remove(user)
+            this_admin = None
+            for admin in this_chat.admin:
+                if admin.token == token:
+                    this_admin = token
+            if this_admin == None:
+                return make_response("Forbidden", 403)
             
-            await self.broadcast_event("remove-user", json.dumps({"chatname": quote(chatname), "user": user}))
+            if this_chat.public:
+                return make_response("Cannot remove user from a public room", 200)
+
+            if this_user not in this_chat.whitelist:
+                return make_response("Not Found", 404)
+            
+            this_chat.whitelist.remove(this_user)
+            
+            await self.broadcast_event("remove-user", json.dumps({"chatname": quote(chatname), "user": {"name": this_user.name, "pfp": this_user.pfp}}))
 
             return make_response("OK", 200)
 
@@ -272,7 +346,7 @@ class Api:
 
     # GET /api/users
     async def get_users(self, request: Request) -> str:
-        return make_response(json.dumps([user.__dict__ for user in self.users]), 200)
+        return make_response(json.dumps([{"name": user.name, "pfp": user.pfp} for user in self.users]), 200)
 
     # POST /api/users
     async def register_user(self, request: Request) -> str:
@@ -280,22 +354,23 @@ class Api:
             message_data = json.loads(request.body)
             user = message_data["user"]
             pfp = message_data["pfp"]
-
             
             if(user in [user.name for user in self.users]):
                 return make_response("Conflict", 409)
+            
+            token = secrets.token_hex(16)
 
-            self.users.append(User(user, pfp))
+            self.users.append(User(user, pfp, token))
             
             await self.broadcast_event("register-user", json.dumps({"name": user, "pfp": pfp}))
 
-            return make_response("OK", 200)
+            return make_response(json.dumps({"token": token}), 201, "application/json")
 
         except (json.JSONDecodeError, KeyError) as e:
             return make_response("Bad Request", 400)
 
-    # GET /api/events (SSE)
-    async def handle_sse(self, loop, client, request: Request) -> None:
+    # GET /api/events/:token (SSE)
+    async def handle_sse(self, loop, client, request: Request, token: str) -> None:
 
         headers = (
             "HTTP/1.1 200 OK\r\n"
@@ -320,6 +395,11 @@ class Api:
             pass
         finally:
             self.sse_clients.discard(client)
+            discarded_user = None
+            for user in self.users:
+                if user.token == int(token):
+                    discarded_user = user
+            self.users.remove(discarded_user)
             client.close()
     
     # SSE methods
@@ -331,5 +411,4 @@ class Api:
             try:
                 await loop.sock_sendall(client, msg.encode())
             except (ConnectionResetError, BrokenPipeError):
-                self.sse_clients.discard(client)
-                client.close()
+                pass # Let the heartbeat discard the connection

@@ -41,6 +41,8 @@ class Server:
                 client, addr = await asyncio.wait_for(loop.sock_accept(self.server), timeout=1.0)
                 client.setblocking(False)
                 loop.create_task(self.handle_connection(client, addr))
+            except TimeoutError:
+                pass
             except Exception as e:
                 pprint(f"")
 
@@ -53,7 +55,18 @@ class Server:
             request: Request = RequestFactory(headers.split("\r\n")).create_request()
             request.body += data_part.decode()
 
-            content_length = int(request.header.get_header("Content-Length", "0"))
+            content_length = int(request.header.get_header("Content-Length"))
+
+            if content_length is None:
+                response = (
+                    "HTTP/1.1 400 Bad Request\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 0\r\n\r\n"
+                )
+                client.sendall(response.encode())
+                client.close()
+                return
+
             current_length = len(request.body.encode())
             while current_length < content_length:
                 more = await loop.sock_recv(client, content_length - current_length)
@@ -66,7 +79,7 @@ class Server:
                 await self.api.handle(client, addr, request)
             else:
                 # frontend adds routes here later
-                response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+                response = b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n"
                 await loop.sock_sendall(client, response)
                 client.close()
 

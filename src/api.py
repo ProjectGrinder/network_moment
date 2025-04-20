@@ -1,6 +1,8 @@
 from pprint import pprint
 import asyncio
 import json
+from urllib.parse import quote, unquote
+
 from src.requests.request import Request
 from src.requests.type import REQUEST_TYPE
 from src.response import make_response
@@ -44,18 +46,28 @@ class Api:
 
         response = None
 
-        if method == REQUEST_TYPE.GET and path == "/api/status":
+        if method == REQUEST_TYPE.GET and path == "/api/status": #OK
             response = await self.status(request)
 
-        if method == REQUEST_TYPE.GET and path == "/api/chat":
+        if method == REQUEST_TYPE.GET and path == "/api/chat": #OK
             response = await self.get_all_chats(request)
+
+        elif method == REQUEST_TYPE.POST and path == "/api/chat/create": #OK
+            response = await self.create_chat(request)
+
+        elif method == REQUEST_TYPE.GET and path == "/api/users": #OK
+            response = await self.get_users(request)
+
+        elif method == REQUEST_TYPE.POST and path == "/api/users": #OK
+            response = await self.register_user(request)
+
+        elif method == REQUEST_TYPE.GET and path == "/api/events": #OK
+            await self.handle_sse(loop, client, request)
+            return
 
         elif method == REQUEST_TYPE.POST and path.startswith("/api/chat/") and path.count("/") == 3:
             chatname = path.split("/")[-1]
             response = await self.post_chat_message(request, chatname)
-
-        elif method == REQUEST_TYPE.POST and path == "/api/chat/create":
-            response = await self.create_chat(request)
 
         elif method == REQUEST_TYPE.POST and path.startswith("/api/chat/") and path.endswith("/join") and path.count("/") == 4:
             chatname = path.split("/")[3]
@@ -73,16 +85,6 @@ class Api:
             chatname = path.split("/")[-1]
             response = await self.remove_user(request, chatname)
 
-        elif method == REQUEST_TYPE.GET and path == "/api/users":
-            response = await self.get_users(request)
-
-        elif method == REQUEST_TYPE.POST and path == "/api/users":
-            response = await self.register_user(request)
-
-        elif method == REQUEST_TYPE.GET and path == "/api/events":
-            await self.handle_sse(loop, client, request)
-            return  # SSE doesn't send a one-shot response — it's streamed
-
         else:
             response = make_response("Not Found", 404)
 
@@ -99,12 +101,13 @@ class Api:
 
     # GET /api/chat
     async def get_all_chats(self, request: Request) -> str:
-        return make_response(json.dumps(self.groups.__dict__), 200)
+        return make_response(json.dumps([group.__dict__ for group in self.groups]), 200)
 
     # POST /api/chat/:chatname
     async def post_chat_message(self, request: Request, chatname: str) -> str:
         try:
             message_data = json.loads(request.body)
+            chatname = unquote(chatname)
 
             if "message" not in message_data:
                 return make_response("Bad Request", 400)
@@ -126,7 +129,7 @@ class Api:
             if (not this_chat.public) and (user not in this_chat.whitelist):
                 return make_response("Forbidden", 403)
 
-            await self.broadcast_event("chat-message", json.dumps({"chatname": chatname, "user": user, "message": message}))
+            await self.broadcast_event("chat-message", json.dumps({"chatname": quote(chatname), "user": user, "message": message}))
 
             return make_response("OK", 200)
         
@@ -135,26 +138,31 @@ class Api:
 
     # POST /api/chat/create
     async def create_chat(self, request: Request) -> str:
-        try:
             message_data = json.loads(request.body)
+
             name = message_data["name"]
             user = message_data["user"]
             public = message_data["public"]
 
+            if user not in [user.name for user in self.users]:
+                return make_response("Not Found", 404)
+
             this_chat = Chat(name, user, public)
             if not this_chat.public:
                 this_chat.whitelist.append(user)
-            
-            await self.broadcast_event("chat-message", json.dumps(this_chat.__dict__))
+
+            self.groups.append(this_chat)
+
+            chat_message = this_chat.__dict__
+            chat_message["name"] = quote(this_chat.name)
+            await self.broadcast_event("chat-message", json.dumps(chat_message))
 
             return make_response("Created", 201)
-
-        except (json.JSONDecodeError, KeyError) as e:
-            return make_response("Bad Request", 400)
 
     # GET /api/chat/:chatname/join
     async def join_chat(self, request: Request, chatname: str) -> str:
         try:
+            chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
 
@@ -169,7 +177,7 @@ class Api:
             if this_chat.public:
                 return make_response(json.dumps({"message": "Public room. You can join directly."}), 200, "application/json")
             
-            await self.broadcast_event("join-request", json.dumps({"chatname": chatname, "user": user}))
+            await self.broadcast_event("join-request", json.dumps({"chatname": quote(chatname), "user": user}))
 
             return make_response("OK", 200)
 
@@ -179,6 +187,7 @@ class Api:
     # PUT /api/chat/:chatname/approve
     async def approve_join(self, request: Request, chatname: str) -> str:
         try:
+            chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
 
@@ -195,7 +204,7 @@ class Api:
             
             # MISSING: admin authorization (403 Forbidden)
             this_chat.whitelist.append(user)
-            await self.broadcast_event("approve-join-request", json.dumps({"chatname": chatname, "user": user}))
+            await self.broadcast_event("approve-join-request", json.dumps({"chatname": quote(chatname), "user": user}))
 
             return make_response("OK", 200)
 
@@ -205,6 +214,7 @@ class Api:
     # PUT /api/chat/:chatname/reject
     async def reject_join(self, request: Request, chatname: str) -> str:
         try:
+            chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
 
@@ -221,7 +231,7 @@ class Api:
             
             # MISSING: admin authorization (403 Forbidden)
             
-            await self.broadcast_event("reject-join-request", json.dumps({"chatname": chatname, "user": user}))
+            await self.broadcast_event("reject-join-request", json.dumps({"chatname": quote(chatname), "user": user}))
 
             return make_response("OK", 200)
 
@@ -231,6 +241,7 @@ class Api:
     # DELETE /api/chat/:chatname
     async def remove_user(self, request: Request, chatname: str) -> str:
         try:
+            chatname = unquote(chatname)
             message_data = json.loads(request.body)
             user = message_data["user"]
 
@@ -252,7 +263,7 @@ class Api:
 
             this_chat.whitelist.remove(user)
             
-            await self.broadcast_event("remove-user", json.dumps({"chatname": chatname, "user": user}))
+            await self.broadcast_event("remove-user", json.dumps({"chatname": quote(chatname), "user": user}))
 
             return make_response("OK", 200)
 
@@ -261,7 +272,7 @@ class Api:
 
     # GET /api/users
     async def get_users(self, request: Request) -> str:
-        return make_response(json.dumps(self.users.__dict__), 200)
+        return make_response(json.dumps([user.__dict__ for user in self.users]), 200)
 
     # POST /api/users
     async def register_user(self, request: Request) -> str:
@@ -274,9 +285,9 @@ class Api:
             if(user in [user.name for user in self.users]):
                 return make_response("Conflict", 409)
 
-            self.users.append(user)
+            self.users.append(User(user, pfp))
             
-            await self.broadcast_event("register-user", json.dumps({"user": user}))
+            await self.broadcast_event("register-user", json.dumps({"name": user, "pfp": pfp}))
 
             return make_response("OK", 200)
 

@@ -1,0 +1,13 @@
+{
+  "framework": "react",
+  "typescript": true,
+  "projectName": "frontend",
+  "mode": "file-router",
+  "tailwind": true,
+  "packageManager": "yarn",
+  "toolchain": "eslint+prettier",
+  "variableValues": {},
+  "git": true,
+  "version": 1,
+  "existingAddOns": []
+}

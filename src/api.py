@@ -392,14 +392,14 @@ class Api:
                 await loop.sock_sendall(client, msg.encode())
         except (ConnectionResetError, BrokenPipeError):
             # Client disconnected
-            pass
-        finally:
             self.sse_clients.discard(client)
             discarded_user = None
             for user in self.users:
-                if user.token == int(token):
+                if user.token == token:
                     discarded_user = user
-            self.users.remove(discarded_user)
+            if(discarded_user != None):
+                self.broadcast_event("remove-user", json.dumps({"name": discarded_user.name, "pfp": discarded_user.pfp}))
+                self.users.remove(discarded_user)
             client.close()
     
     # SSE methods

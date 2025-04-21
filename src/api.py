@@ -90,14 +90,24 @@ class Api:
             response = await self.remove_user(request, chatname)
 
         else:
-            response = make_response("Not Found", 404)
+            response = await self.frontend_serve(request)
 
         if response:
             await loop.sock_sendall(client, response.encode())
 
         client.close()
 
-    # Routes
+    # Frontend Routes (Dynamic)
+    async def frontend_serve(self, request: Request):
+        path = "/dist" + request.path
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+            return make_response(body, 200, "text/html")
+        except FileNotFoundError:
+            return make_response("Not Found", 404)
+
+    # API Routes
 
     # GET /api/status
     async def status(self, request: Request) -> str:

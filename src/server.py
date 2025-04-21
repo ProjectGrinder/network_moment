@@ -82,13 +82,7 @@ class Server:
                     request.body += more.decode()
                     current_length += len(more)
 
-            if request.path.startswith("/api"):
-                await self.api.handle(loop, client, addr, request)
-            else:
-                # frontend adds routes here later (or can be added to api, i guess)
-                response = make_response("Not Found",status=404)
-                await loop.sock_sendall(client, response)
-                client.close()
+            await self.api.handle(loop, client, addr, request)
             return
 
         except Exception as e:

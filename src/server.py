@@ -79,13 +79,33 @@ def chat_detail_to_dict(chat: Chat):
 
 async def handle_register_user(ws, data):
     """Handles new user registration."""
-    user = User(name=data["username"], pfp=data["pfp"])
-    connected_users[ws] = user
+    try:
+        username = data.get("username")
+        pfp = data.get("pfp")
 
-    # Broadcast updated user and chat lists to all clients
-    await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
-    await broadcast("update-chat-list", [chat_to_dict(chat) for chat in active_chats.values()], connected_users.keys())
+        # Validate username and profile picture
+        if not username or not isinstance(username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "register-user", "message": "Invalid username"}}))
+            return
+        if not isinstance(pfp, int):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "register-user", "message": "Invalid profile picture ID"}}))
+            return
 
+        # Check if the username already exists
+        if any(user.name == username for user in connected_users.values()):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "register-user", "message": "Username already taken"}}))
+            return
+
+        # Register the user
+        user = User(name=username, pfp=pfp)
+        connected_users[ws] = user
+
+        # Broadcast updated user and chat lists to all clients
+        await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
+        await broadcast("update-chat-list", [chat_to_dict(chat) for chat in active_chats.values()], connected_users.keys())
+    except Exception as e:
+        print(f"Error in handle_register_user: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "register-user", "message": "Internal server error"}}))
 
 async def handle_create_chat(ws, data):
     """Handles creating a new chat."""

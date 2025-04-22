@@ -35,7 +35,6 @@ class Chat:
         self.messages = []
     
     def add_message(self, message: Message):
-        print("added message")
         self.messages.append(message)
 
 
@@ -222,7 +221,7 @@ async def handle_open_chat(ws, data):
 async def handle_post_message(ws, data):
     """Handles posting a message in a chat."""
     user = connected_users[ws]
-    chatname = active_chats.get(data["chatname"])
+    chatname = data.get("chatname")
     message_text = data["message"]
 
     chat = active_chats.get(chatname)

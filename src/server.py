@@ -62,7 +62,7 @@ class Server:
 
                 if content_length is None:
                     response = make_response("Bad Request", 400)
-                    await loop.sock_sendall(client, response.encode())
+                    await loop.sock_sendall(client, )
                     client.close()
                     return
                 
@@ -70,7 +70,7 @@ class Server:
                     content_length = int(content_length)
                 except ValueError:
                     response = make_response("Bad Request", 400)
-                    await loop.sock_sendall(client, response.encode())
+                    await loop.sock_sendall(client, )
                     client.close()
                     return 
 

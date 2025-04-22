@@ -1,13 +1,16 @@
+import os
 from pprint import pprint
 import asyncio
 import json
 from urllib.parse import quote, unquote
+import mimetypes
+import secrets
 
 from src.requests.request import Request
 from src.requests.type import REQUEST_TYPE
 from src.response import make_response
 from src.requests.header import Header
-import secrets
+
 
 class User:
     name: str
@@ -93,32 +96,48 @@ class Api:
             response = await self.frontend_serve(request)
 
         if response:
-            await loop.sock_sendall(client, response.encode())
+            await loop.sock_sendall(client, response)
 
         client.close()
 
-    # Frontend Routes (Dynamic)
+    # Frontend Routes
     async def frontend_serve(self, request: Request):
-        path = "/dist" + request.path
+        requested_path = request.path if request.path.startswith("/") else "/" + request.path
+        
+        if requested_path.endswith("/"):
+            requested_path = "/index.html"
+
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
+        file_path = os.path.abspath(os.path.join(base_dir, requested_path.lstrip("/")))
+
+        if not file_path.startswith(base_dir):
+            return make_response("Forbidden", 403)
+        
         try:
-            with open(path, "rb") as f:
+            with open(file_path, "rb") as f:
                 body = f.read()
-            return make_response(body, 200, "text/html")
+
+            content_type, _ = mimetypes.guess_type(file_path)
+            if not content_type:
+                content_type = "application/octet-stream"
+
+            return make_response(body, 200, content_type, is_binary=True)
+
         except FileNotFoundError:
             return make_response("Not Found", 404)
 
     # API Routes
 
     # GET /api/status
-    async def status(self, request: Request) -> str:
+    async def status(self, request: Request) -> bytes:
         return make_response("OK", 200)
 
     # GET /api/chat
-    async def get_all_chats(self, request: Request) -> str:
+    async def get_all_chats(self, request: Request) -> bytes:
         return make_response(json.dumps([group.__dict__ for group in self.groups]), 200)
 
     # POST /api/chat/:chatname
-    async def post_chat_message(self, request: Request, chatname: str) -> str:
+    async def post_chat_message(self, request: Request, chatname: str) -> bytes:
         try:
             message_data = json.loads(request.body)
             chatname = unquote(chatname)
@@ -166,7 +185,7 @@ class Api:
             return make_response("Bad Request", 400)
 
     # POST /api/chat/create
-    async def create_chat(self, request: Request) -> str:
+    async def create_chat(self, request: Request) -> bytes:
             message_data = json.loads(request.body)
 
             name = message_data["name"]
@@ -202,7 +221,7 @@ class Api:
             return make_response("Created", 201)
 
     # GET /api/chat/:chatname/join
-    async def join_chat(self, request: Request, chatname: str) -> str:
+    async def join_chat(self, request: Request, chatname: str) -> bytes:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
@@ -235,7 +254,7 @@ class Api:
             return make_response("Bad Request", 400)
 
     # PUT /api/chat/:chatname/approve
-    async def approve_join(self, request: Request, chatname: str) -> str:
+    async def approve_join(self, request: Request, chatname: str) -> bytes:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
@@ -273,7 +292,7 @@ class Api:
             return make_response("Bad Request", 400)
     
     # DELETE /api/chat/:chatname/reject
-    async def reject_join(self, request: Request, chatname: str) -> str:
+    async def reject_join(self, request: Request, chatname: str) -> bytes:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
@@ -310,7 +329,7 @@ class Api:
             return make_response("Bad Request", 400)
 
     # DELETE /api/chat/:chatname
-    async def remove_user(self, request: Request, chatname: str) -> str:
+    async def remove_user(self, request: Request, chatname: str) -> bytes:
         try:
             chatname = unquote(chatname)
             message_data = json.loads(request.body)
@@ -355,11 +374,11 @@ class Api:
             return make_response("Bad Request", 400)
 
     # GET /api/users
-    async def get_users(self, request: Request) -> str:
+    async def get_users(self, request: Request) -> bytes:
         return make_response(json.dumps([{"name": user.name, "pfp": user.pfp} for user in self.users]), 200)
 
     # POST /api/users
-    async def register_user(self, request: Request) -> str:
+    async def register_user(self, request: Request) -> bytes:
         try:
             message_data = json.loads(request.body)
             user = message_data["user"]

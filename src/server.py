@@ -653,6 +653,23 @@ async def handle_get_data(ws, data):
     try:
         await ws.send(json.dumps({"event": "update-user-list", "data": [user_to_dict(u) for u in connected_users.values()]}))
         await ws.send(json.dumps({"event": "update-chat-list", "data": [chat_to_dict(c) for c in active_chats.values()]}))
+        for chatname, ws_list in focused_chats.items():
+            if ws in ws_list:
+                chat = active_chats.get(chatname)
+            if chat:
+                await ws.send(json.dumps({
+                    "event": "update-chat-detail",
+                    "data": chat_detail_to_dict(chat)
+                }))
+            return
+        # If no focused chat is found, notify the user
+        await ws.send(json.dumps({
+            "event": "error",
+            "data": {
+                "event-type": "get-data",
+                "message": "No focused chat found for this user"
+            }
+        }))
     except Exception as e:
         print(f"Error in handle_get_chat: {e}")
         await ws.send(json.dumps({"event": "error", "data": {"event-type": "get-chat", "message": "Internal server error"}}))

@@ -589,6 +589,11 @@ async def handle_add_admin(ws, data):
             await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "User not found"}}))
             return
 
+        # Ensure the user is whitelisted in the chat
+        if user_to_add not in chat.whitelist:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "User is not whitelisted in this chat"}}))
+            return
+
         # Add the user as an admin if not already an admin
         if user_to_add not in chat.admin:
             chat.admin.append(user_to_add)

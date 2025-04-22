@@ -330,12 +330,16 @@ async def handle_accept_join_request(ws, data):
     focused = focused_chats.get(chat.name, [])
     await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
 
-    # Also notify the newly whitelisted user if they're connected
+    # Notify the admins and the newly whitelisted user that the request is resolved
     for client_ws, user in connected_users.items():
-        if user == user_to_add:
+        if user == user_to_add or user in chat.admin:
             await client_ws.send(json.dumps({
-                "event": "update-chat-detail",
-                "data": chat_detail_to_dict(chat)
+                "event": "resolve-join-request",
+                "data": {
+                    "chatname": chatname,
+                    "user": user_to_dict(user_to_add),
+                    "accept": True
+                }
             }))
             break
 

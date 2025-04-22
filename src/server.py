@@ -249,22 +249,59 @@ async def handle_post_message(ws, data):
 
 async def handle_join_chat(ws, data):
     """Handles a request for joining a private chat."""
-    user = connected_users[ws]
-    chatname = data["chatname"]
-    chat = active_chats.get(chatname)
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "join-chat", "message": "Invalid data format"}}))
+            return
 
-    if not chat or chat.public:
-        return  # Public chats don’t need join requests
+        chatname = data.get("chatname")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "join-chat", "message": "Invalid or missing chatname"}}))
+            return
 
-    for client_ws, user in connected_users.items():
-        if user in chat.admin:
-            await client_ws.send(json.dumps({
-                "event": "join-request",
+        # Validate user
+        user = connected_users.get(ws)
+        if not user:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "join-chat", "message": "User not connected"}}))
+            return
+
+        # Validate chat existence
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({
+                "event": "error",
                 "data": {
-                    "chatname": chat.name,
-                    "user": user_to_dict(user)
+                    "event-type": "join-chat",
+                    "message": "Chat doesn't exist."
                 }
             }))
+            return
+
+        # Check if the chat is public
+        if chat.public:
+            await ws.send(json.dumps({
+                "event": "error",
+                "data": {
+                    "event-type": "join-chat",
+                    "message": "This is a public chat. No join request is needed."
+                }
+            }))
+            return
+
+        # Notify chat admins about the join request
+        for client_ws, admin_user in connected_users.items():
+            if admin_user in chat.admin:
+                await client_ws.send(json.dumps({
+                    "event": "join-request",
+                    "data": {
+                        "chatname": chat.name,
+                        "user": user_to_dict(user)
+                    }
+                }))
+    except Exception as e:
+        print(f"Error in handle_join_chat: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "join-chat", "message": "Internal server error"}}))
 
 
 async def handle_accept_join_request(ws, data):

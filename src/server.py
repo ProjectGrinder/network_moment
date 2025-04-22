@@ -502,20 +502,49 @@ async def handle_remove_user(ws, data):
 
 async def handle_inbox(ws, data):
     """Sends a message to the target client's inbox."""
-    sender = connected_users.get(ws)
-    target_username = data["username"]
-    message = data["message"]
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Invalid data format"}}))
+            return
 
-    for client_ws, user in connected_users.items():
-        if user.name == target_username:
-            await client_ws.send(json.dumps({
-                "event": "update-inbox",
-                "data": {
-                    "sender": user_to_dict(sender),
-                    "message": message
-                }
-            }))
-            break
+        target_username = data.get("username")
+        message = data.get("message")
+        if not target_username or not isinstance(target_username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Invalid or missing target username"}}))
+            return
+        if not message or not isinstance(message, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Invalid or missing message"}}))
+            return
+
+        # Validate sender
+        sender = connected_users.get(ws)
+        if not sender:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Sender not connected"}}))
+            return
+
+        # Find the target user
+        target_user_ws = None
+        for client_ws, user in connected_users.items():
+            if user.name == target_username:
+                target_user_ws = client_ws
+                break
+
+        if not target_user_ws:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Target user not found"}}))
+            return
+
+        # Send the message to the target user's inbox
+        await target_user_ws.send(json.dumps({
+            "event": "update-inbox",
+            "data": {
+                "sender": user_to_dict(sender),
+                "message": message
+            }
+        }))
+    except Exception as e:
+        print(f"Error in handle_inbox: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "inbox", "message": "Internal server error"}}))
 
 async def handle_add_admin(ws, data):
     """Adds a user as an admin to the chatroom."""

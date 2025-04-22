@@ -370,33 +370,64 @@ async def handle_accept_join_request(ws, data):
         print(f"Error in handle_accept_join_request: {e}")
         await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Internal server error"}}))
 
+
 async def handle_reject_join_request(ws, data):
-    # Notify the admins and the rejected user that the request is resolved
-    chatname = data.get("chatname")
-    username = data.get("username")
+    """Handles rejecting a join request for a private chat."""
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Invalid data format"}}))
+            return
 
-    user_to_reject = None
-    for client_ws, user in connected_users.items():
-        if user.name == username:
-            user_to_reject = user
-            break
+        chatname = data.get("chatname")
+        username = data.get("username")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Invalid or missing chatname"}}))
+            return
+        if not username or not isinstance(username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Invalid or missing username"}}))
+            return
 
-    if not user_to_reject:
-        await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "User not found"}}))
-        return
-    
-    chat = active_chats[chatname]
+        # Validate admin user
+        admin = connected_users.get(ws)
+        if not admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "User not connected"}}))
+            return
 
-    for client_ws, user in connected_users.items():
-        if user == user_to_reject or user in chat.admin:
-            await client_ws.send(json.dumps({
-                "event": "resolve-join-request",
-                "data": {
-                    "chatname": chatname,
-                    "user": user_to_dict(user_to_reject),
-                    "accept": False
-                }
-            }))
+        # Validate chat existence and admin privileges
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Chat does not exist"}}))
+            return
+        if admin not in chat.admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "You are not an admin of this chat"}}))
+            return
+
+        # Find the user to reject by username
+        user_to_reject = None
+        for client_ws, user in connected_users.items():
+            if user.name == username:
+                user_to_reject = user
+                break
+
+        if not user_to_reject:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "User not found"}}))
+            return
+
+        # Notify the admins and the rejected user that the request is resolved
+        for client_ws, user in connected_users.items():
+            if user == user_to_reject or user in chat.admin:
+                await client_ws.send(json.dumps({
+                    "event": "resolve-join-request",
+                    "data": {
+                        "chatname": chatname,
+                        "user": user_to_dict(user_to_reject),
+                        "accept": False
+                    }
+                }))
+    except Exception as e:
+        print(f"Error in handle_reject_join_request: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Internal server error"}}))
 
 async def handle_remove_user(ws, data):
     admin = connected_users[ws]

@@ -635,6 +635,27 @@ async def handle_add_admin(ws, data):
         print(f"Error in handle_add_admin: {e}")
         await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Internal server error"}}))
 
+async def handle_get_user(ws, data):
+    try:
+        await ws.send(json.dumps({"event": "update-user-list", "data": [user_to_dict(u) for u in connected_users.values()]}))
+    except Exception as e:
+        print(f"Error in handle_get_user: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "get-user", "message": "Internal server error"}}))
+
+async def handle_get_chat(ws, data):
+    try:
+        await ws.send(json.dumps({"event": "update-chat-list", "data": [chat_to_dict(c) for c in active_chats.values()]}))
+    except Exception as e:
+        print(f"Error in handle_get_chat: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "get-chat", "message": "Internal server error"}}))
+
+async def handle_get_data(ws, data):
+    try:
+        await ws.send(json.dumps({"event": "update-user-list", "data": [user_to_dict(u) for u in connected_users.values()]}))
+        await ws.send(json.dumps({"event": "update-chat-list", "data": [chat_to_dict(c) for c in active_chats.values()]}))
+    except Exception as e:
+        print(f"Error in handle_get_chat: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "get-chat", "message": "Internal server error"}}))
 
 # === DISPATCHER ===
 
@@ -648,7 +669,10 @@ event_handlers = {
     "reject-join-request": handle_reject_join_request,
     "remove-user": handle_remove_user,
     "inbox": handle_inbox,
-    "add-admin": handle_add_admin
+    "add-admin": handle_add_admin,
+    "get-user": handle_get_user,
+    "get-chat": handle_get_chat,
+    "get-data": handle_get_data
     # Add more handlers here as needed...
 }
 

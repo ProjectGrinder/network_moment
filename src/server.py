@@ -548,27 +548,66 @@ async def handle_inbox(ws, data):
 
 async def handle_add_admin(ws, data):
     """Adds a user as an admin to the chatroom."""
-    admin = connected_users.get(ws)
-    chatname = data["chatname"]
-    target_username = data["username"]
-    chat = active_chats.get(chatname)
-    if not chat or admin not in chat.admin:
-        return
-    
-    user_to_add = None
-    for client_ws, user in connected_users.items():
-        if user.name == target_username:
-            user_to_add = user
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Invalid data format"}}))
+            return
 
-    if not user_to_add:
-        return
-    
-    if user_to_add not in chat.admin:
-        chat.admin.append(user_to_add)
-        await client_ws.send(json.dumps({
-            "event": "update-chat-detail",
-            "data": chat_detail_to_dict(chat)
-        }))
+        chatname = data.get("chatname")
+        target_username = data.get("username")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Invalid or missing chatname"}}))
+            return
+        if not target_username or not isinstance(target_username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Invalid or missing username"}}))
+            return
+
+        # Validate admin user
+        admin = connected_users.get(ws)
+        if not admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "User not connected"}}))
+            return
+
+        # Validate chat existence and admin privileges
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Chat does not exist"}}))
+            return
+        if admin not in chat.admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "You are not an admin of this chat"}}))
+            return
+
+        # Find the user to add as admin
+        user_to_add = None
+        for client_ws, user in connected_users.items():
+            if user.name == target_username:
+                user_to_add = user
+                break
+
+        if not user_to_add:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "User not found"}}))
+            return
+
+        # Add the user as an admin if not already an admin
+        if user_to_add not in chat.admin:
+            chat.admin.append(user_to_add)
+
+            # Notify all focused clients with updated chat details
+            focused = focused_chats.get(chatname, [])
+            await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+            # Notify the newly added admin
+            for client_ws, user in connected_users.items():
+                if user == user_to_add:
+                    await client_ws.send(json.dumps({
+                        "event": "update-chat-detail",
+                        "data": chat_detail_to_dict(chat)
+                    }))
+                    break
+    except Exception as e:
+        print(f"Error in handle_add_admin: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "add-admin", "message": "Internal server error"}}))
 
 
 # === DISPATCHER ===

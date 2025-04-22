@@ -639,17 +639,28 @@ async def handler(ws, path):
     try:
         async for message in ws:
             try:
+                # Parse and validate the payload
                 payload = json.loads(message)
+                if not isinstance(payload, dict):
+                    await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid payload format"}}))
+                    continue
+
                 event = payload.get("event")
                 data = payload.get("data")
+                if not event or not isinstance(event, str):
+                    await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid or missing event type"}}))
+                    continue
 
                 if event in event_handlers:
                     await event_handlers[event](ws, data)
                 else:
-                    print(f"Unknown event: {event}")
+                    await ws.send(json.dumps({"event": "error", "data": {"message": f"Unknown event: {event}"}}))
 
+            except json.JSONDecodeError:
+                await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid JSON format"}}))
             except Exception as e:
                 print(f"Error handling message: {e}")
+                await ws.send(json.dumps({"event": "error", "data": {"message": "Internal server error"}}))
 
     finally:
         # Cleanup on disconnect
@@ -659,7 +670,6 @@ async def handler(ws, path):
             if ws in chat_ws_list:
                 chat_ws_list.remove(ws)
         await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
-
 
 # === SERVER STARTUP ===
 

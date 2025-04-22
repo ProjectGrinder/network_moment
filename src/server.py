@@ -306,46 +306,97 @@ async def handle_join_chat(ws, data):
 
 async def handle_accept_join_request(ws, data):
     """Handles accepting a join request to add the user to the whitelist."""
-    admin = connected_users[ws]
-    chatname = data["chatname"]
-    username = data["username"]
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Invalid data format"}}))
+            return
 
-    chat = active_chats.get(chatname)
-    if not chat or admin not in chat.admin:
-        return
+        chatname = data.get("chatname")
+        username = data.get("username")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Invalid or missing chatname"}}))
+            return
+        if not username or not isinstance(username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Invalid or missing username"}}))
+            return
 
-    # Find the user to add by username
-    user_to_add = None
+        # Validate admin user
+        admin = connected_users.get(ws)
+        if not admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "User not connected"}}))
+            return
+
+        # Validate chat existence and admin privileges
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Chat does not exist"}}))
+            return
+        if admin not in chat.admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "You are not an admin of this chat"}}))
+            return
+
+        # Find the user to add by username
+        user_to_add = None
+        for client_ws, user in connected_users.items():
+            if user.name == username:
+                user_to_add = user
+                break
+
+        if not user_to_add:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "User not found"}}))
+            return
+
+        # Add the user to the whitelist if not already present
+        if user_to_add not in chat.whitelist:
+            chat.whitelist.append(user_to_add)
+
+        # Update all focused clients
+        focused = focused_chats.get(chat.name, [])
+        await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+        # Notify the admins and the newly whitelisted user that the request is resolved
+        for client_ws, user in connected_users.items():
+            if user == user_to_add or user in chat.admin:
+                await client_ws.send(json.dumps({
+                    "event": "resolve-join-request",
+                    "data": {
+                        "chatname": chatname,
+                        "user": user_to_dict(user_to_add),
+                        "accept": True
+                    }
+                }))
+    except Exception as e:
+        print(f"Error in handle_accept_join_request: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "accept-join-request", "message": "Internal server error"}}))
+
+async def handle_reject_join_request(ws, data):
+    # Notify the admins and the rejected user that the request is resolved
+    chatname = data.get("chatname")
+    username = data.get("username")
+
+    user_to_reject = None
     for client_ws, user in connected_users.items():
         if user.name == username:
-            user_to_add = user
+            user_to_reject = user
+            break
 
-    if not user_to_add:
+    if not user_to_reject:
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "User not found"}}))
         return
+    
+    chat = active_chats[chatname]
 
-    if user_to_add not in chat.whitelist:
-        chat.whitelist.append(user_to_add)
-
-    # Update all focused clients
-    focused = focused_chats.get(chat.name, [])
-    await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
-
-    # Notify the admins and the newly whitelisted user that the request is resolved
     for client_ws, user in connected_users.items():
-        if user == user_to_add or user in chat.admin:
+        if user == user_to_reject or user in chat.admin:
             await client_ws.send(json.dumps({
                 "event": "resolve-join-request",
                 "data": {
                     "chatname": chatname,
-                    "user": user_to_dict(user_to_add),
-                    "accept": True
+                    "user": user_to_dict(user_to_reject),
+                    "accept": False
                 }
             }))
-            break
-
-async def handle_reject_join_request(ws, data):
-    # You could log or notify if needed
-    pass  # No broadcast, just ignore silently
 
 async def handle_remove_user(ws, data):
     admin = connected_users[ws]

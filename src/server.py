@@ -160,41 +160,62 @@ async def handle_create_chat(ws, data):
 
 async def handle_open_chat(ws, data):
     """Handles opening a chat."""
-    user = connected_users[ws]
-    chat = active_chats.get(data["chatname"])
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "open-chat", "message": "Invalid data format"}}))
+            return
 
-    if not chat:
-        await ws.send(json.dumps({
-            "event": "no-access",
-            "data": {
-                "message": "This chat doesn't exist, buddy."
-            }
-        }))
-        return
-    
-    if chat.public or user in chat.whitelist:
-        # Remove the user from all current focused chat lists
-        for ws_list in focused_chats.values():
-            if ws in ws_list:
-                ws_list.remove(ws)
+        chatname = data.get("chatname")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "open-chat", "message": "Invalid or missing chatname"}}))
+            return
 
-        # Focus the chat for this user
-        if ws not in focused_chats[chat.name]:
-            focused_chats[chat.name].append(ws)
+        # Validate user
+        user = connected_users.get(ws)
+        if not user:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "open-chat", "message": "User not connected"}}))
+            return
 
-        # Send chat details to the user
-        await ws.send(json.dumps({
-            "event": "update-chat-detail",
-            "data": chat_detail_to_dict(chat)
-        }))
-    else:
-        # User has no access to the chat
-        await ws.send(json.dumps({
-            "event": "no-access",
-            "data": {
-                "message": "Sucks to be you, but you're not whitelisted, bro. Wanna join up?"
-            }
-        }))
+        # Validate chat existence
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({
+                "event": "error",
+                "data": {
+                    "event-type": "open-chat",
+                    "message": "Chat doesn't exist."
+                }
+            }))
+            return
+
+        # Check access permissions
+        if chat.public or user in chat.whitelist:
+            # Remove the user from all current focused chat lists
+            for ws_list in focused_chats.values():
+                if ws in ws_list:
+                    ws_list.remove(ws)
+
+            # Focus the chat for this user
+            if ws not in focused_chats[chat.name]:
+                focused_chats[chat.name].append(ws)
+
+            # Send chat details to the user
+            await ws.send(json.dumps({
+                "event": "update-chat-detail",
+                "data": chat_detail_to_dict(chat)
+            }))
+        else:
+            # User has no access to the chat
+            await ws.send(json.dumps({
+                "event": "no-access",
+                "data": {
+                    "message": "You are not whitelisted for this chat. Request access to join."
+                }
+            }))
+    except Exception as e:
+        print(f"Error in handle_open_chat: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "open-chat", "message": "Internal server error"}}))
 
 
 async def handle_post_message(ws, data):

@@ -492,9 +492,18 @@ async def handle_remove_user(ws, data):
             }
         }))
 
-        # Notify all focused clients with updated chat details
-        focused = focused_chats.get(chatname, [])
-        await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+        # Check if no admins remain
+        if len(chat.admin) == 0:
+            del active_chats[chatname]
+            if chatname in focused_chats:
+                del focused_chats[chatname]
+            
+            # Notify all clients about the deleted chat
+            await broadcast("delete-chat", {"chatname": chatname}, connected_users.keys())
+        else:
+            # Notify all focused clients with updated chat details
+            focused = focused_chats.get(chatname, [])
+            await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
 
     except Exception as e:
         print(f"Error in handle_remove_user: {e}")

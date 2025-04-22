@@ -22,13 +22,15 @@ class Message:
 
 class Chat:
     name: str
+    pfp: int
     admin: List[User]
     public: bool
     whitelist: List[User]
     messages: List[Message]
 
-    def __init__(self, name, admin, public):
+    def __init__(self, name, pfp, admin, public):
         self.name = name
+        self.pfp = pfp
         self.admin = [admin]
         self.public = public
         self.whitelist = []
@@ -72,6 +74,7 @@ def chat_to_dict(chat: Chat):
     """Convert a Chat object to a dictionary."""
     return {
         "chatname": chat.name,
+        "pfp": chat.pfp,
         "public": chat.public,
     }
 
@@ -80,6 +83,7 @@ def chat_detail_to_dict(chat: Chat):
     """Convert detailed Chat information (including messages) to a dictionary."""
     return {
         "chatname": chat.name,
+        "pfp": chat.pfp,
         "admin": [user_to_dict(u) for u in chat.admin],
         "whitelist": [user_to_dict(u) for u in chat.whitelist],
         "messages": [{"user": user_to_dict(m.user), "message": m.message} for m in chat.messages]
@@ -124,11 +128,14 @@ async def handle_create_chat(ws, data):
     try:
         # Validate input data
         chatname = data.get("chatname")
+        pfp = data.get("pfp")
         public = data.get("public")
 
         if not chatname or not isinstance(chatname, str):
             await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Invalid or missing chatname"}}))
             return
+        if not isinstance(pfp, int):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat", "message": "Invalid or missing profile picture ID"}}))
         if not isinstance(public, bool):
             await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Invalid or missing public flag"}}))
             return
@@ -144,7 +151,7 @@ async def handle_create_chat(ws, data):
             await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "User not connected"}}))
             return
 
-        chat = Chat(name=chatname, admin=user, public=public)
+        chat = Chat(name=chatname, pfp=pfp, admin=user, public=public)
 
         if not public:
             chat.whitelist.append(user)

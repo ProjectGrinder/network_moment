@@ -49,7 +49,18 @@ focused_chats: Dict[str, List[websockets.WebSocketServerProtocol]] = {}  # chatn
 def broadcast(event_type, data, clients):
     """Send a message to all clients in a specified list."""
     message = json.dumps({"event": event_type, "data": data})
-    return asyncio.gather(*(client.send(message) for client in clients))
+
+    async def safe_send(client):
+        try:
+            await asyncio.wait_for(client.send(message), timeout=5)  # Set a 5-second timeout
+        except asyncio.TimeoutError:
+            print(f"Timeout: Failed to send message to client {client}")
+        except websockets.ConnectionClosed:
+            print(f"Connection closed: Failed to send message to client {client}")
+        except Exception as e:
+            print(f"Error sending message to client {client}: {e}")
+
+    return asyncio.gather(*(safe_send(client) for client in clients))
 
 
 def user_to_dict(user: User):
@@ -106,6 +117,7 @@ async def handle_register_user(ws, data):
     except Exception as e:
         print(f"Error in handle_register_user: {e}")
         await ws.send(json.dumps({"event": "error", "data": {"event-type": "register-user", "message": "Internal server error"}}))
+
 
 async def handle_create_chat(ws, data):
     """Handles creating a new chat."""

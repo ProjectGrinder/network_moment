@@ -19,6 +19,8 @@ class RequestFactory:
                 return REQUEST_TYPE.PUT
             case "DELETE":
                 return REQUEST_TYPE.DELETE
+            case "OPTIONS":
+                return REQUEST_TYPE.OPTIONS
 
     
     def create_request(self) -> Request:

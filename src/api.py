@@ -52,7 +52,10 @@ class Api:
 
         response = None
 
-        if method == REQUEST_TYPE.GET and path == "/api/status": #OK
+        if method == REQUEST_TYPE.OPTIONS: # CORS preflight
+            response = make_response("", 204)
+
+        elif method == REQUEST_TYPE.GET and path == "/api/status": #OK
             response = await self.status(request)
 
         if method == REQUEST_TYPE.GET and path == "/api/chat": #OK

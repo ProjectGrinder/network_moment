@@ -35,6 +35,7 @@ class Chat:
         self.messages = []
     
     def add_message(self, message: Message):
+        print("added message")
         self.messages.append(message)
 
 
@@ -634,9 +635,26 @@ event_handlers = {
 
 # === MAIN HANDLER ===
 
-async def handler(ws, path):
-    """Main WebSocket handler."""
+async def handler(ws):
+    """Main WebSocket handler with heartbeat mechanism."""
     try:
+        # Start a background task to send pings
+        async def send_heartbeat():
+            while True:
+                try:
+                    await ws.ping()
+                    await asyncio.sleep(30)  # Send a ping every 30 seconds
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"Heartbeat error: {e}")
+                    break
+
+            # Signal termination by raising an exception
+            raise ConnectionError("Heartbeat task terminated")
+
+        heartbeat_task = asyncio.create_task(send_heartbeat())
+
         async for message in ws:
             try:
                 # Parse and validate the payload
@@ -662,7 +680,16 @@ async def handler(ws, path):
                 print(f"Error handling message: {e}")
                 await ws.send(json.dumps({"event": "error", "data": {"message": "Internal server error"}}))
 
+    except ConnectionError as e:
+        print(f"Connection error: {e}")
     finally:
+        # Cancel the heartbeat task
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
         # Cleanup on disconnect
         if ws in connected_users:
             del connected_users[ws]

@@ -127,21 +127,21 @@ async def handle_create_chat(ws, data):
         public = data.get("public")
 
         if not chatname or not isinstance(chatname, str):
-            await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid or missing chatname"}}))
+            await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Invalid or missing chatname"}}))
             return
         if not isinstance(public, bool):
-            await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid or missing public flag"}}))
+            await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Invalid or missing public flag"}}))
             return
 
         # Ensure chatname is unique
         if chatname in active_chats:
-            await ws.send(json.dumps({"event": "error", "data": {"message": "Chatname already exists"}}))
+            await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Chatname already exists"}}))
             return
 
         # Create the chat
         user = connected_users.get(ws)
         if not user:
-            await ws.send(json.dumps({"event": "error", "data": {"message": "User not connected"}}))
+            await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "User not connected"}}))
             return
 
         chat = Chat(name=chatname, admin=user, public=public)
@@ -156,7 +156,7 @@ async def handle_create_chat(ws, data):
         await broadcast("update-chat-list", [chat_to_dict(c) for c in active_chats.values()], connected_users.keys())
     except Exception as e:
         print(f"Error in handle_create_chat: {e}")
-        await ws.send(json.dumps({"event": "error", "data": {"message": "Internal server error"}}))
+        await ws.send(json.dumps({"event": "error", "data": {"event-type":"create-chat","message": "Internal server error"}}))
 
 async def handle_open_chat(ws, data):
     """Handles opening a chat."""

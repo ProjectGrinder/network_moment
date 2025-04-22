@@ -1,5 +1,5 @@
-from src.server import Server
-
+from src.server import main
+import asyncio
 
 def start(port_number: int) -> None:
-    Server(port_number).start()
+    asyncio.run(main(port_number))

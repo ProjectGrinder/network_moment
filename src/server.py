@@ -1,107 +1,148 @@
-import socket
-from pprint import pprint
-
-
-from src.requests.type import REQUEST_TYPE
-from src.request_factory import RequestFactory
-from src.response import make_response
-from src.requests.request import Request
-from src.api import Api
 import asyncio
+import websockets
+import json
 
-class Server:
+from typing import Dict, List
 
-    server:socket
-    port_number:int
-    api:Api
+class User:
+    name: str
+    pfp: int
 
-    def __init__(self, port_number: int) -> None:
-        self.port_number = port_number
-    
-    def start(self) -> None:
-        self.server = socket.create_server(
-            address=("", self.port_number),
-            family=socket.AF_INET
-        )
-        self.server.setblocking(False)
-        self.api = Api()
-        
-        print("Server listening on port", self.port_number)
+    def __init__(self, name, pfp, token):
+        self.name = name
+        self.pfp = pfp
 
-        try:
-            asyncio.run(self.run_server())
-        except KeyboardInterrupt:
-            print("Server stopped")
-        finally:
-            self.server.close()
-    
-    async def run_server(self):
-        loop = asyncio.get_running_loop()
+class Chat:
+    name: str
+    admin: list[User]
+    public: bool
+    whitelist: list[User]
 
-        while True:
+    def __init__(self, name, admin, public):
+        self.name = name
+        self.admin = [admin]
+        self.public = public
+        self.whitelist = []
+
+# Assume User and Chat classes are already defined
+connected_users: Dict[websockets.WebSocketServerProtocol, User] = {}
+active_chats: Dict[str, Chat] = {}
+focused_chats: Dict[str, List[websockets.WebSocketServerProtocol]] = {}  # chatname -> list of clients
+
+
+# === HELPER FUNCTIONS ===
+
+def broadcast(event_type, data, clients):
+    message = json.dumps({"event": event_type, "data": data})
+    return asyncio.gather(*(client.send(message) for client in clients))
+
+
+def user_to_dict(user: User):
+    return {"username": user.name, "pfp": user.pfp}
+
+
+def chat_to_dict(chat: Chat):
+    return {
+        "chatname": chat.name,
+        "public": chat.public,
+    }
+
+
+def chat_detail_to_dict(chat: Chat, messages=[]):
+    return {
+        "chatname": chat.name,
+        "admin": [user_to_dict(u) for u in chat.admin],
+        "whitelist": [user_to_dict(u) for u in chat.whitelist],
+        "messages": [{"user": user_to_dict(m["user"]), "message": m["message"]} for m in messages]
+    }
+
+
+# === EVENT HANDLERS ===
+
+async def handle_register_user(ws, data):
+    user = User(name=data["username"], pfp=data["pfp"], token=None)
+    connected_users[ws] = user
+
+    await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
+    await broadcast("update-chat-list", [chat_to_dict(chat) for chat in active_chats.values()], connected_users.keys())
+
+
+async def handle_create_chat(ws, data):
+    user = connected_users[ws]
+    chat = Chat(name=data["chatname"], admin=user, public=data["public"])
+    if not data["public"]:
+        chat.whitelist.append(user)
+
+    active_chats[chat.name] = chat
+    focused_chats[chat.name] = []
+
+    await broadcast("update-chat-list", [chat_to_dict(c) for c in active_chats.values()], connected_users.keys())
+
+
+async def handle_open_chat(ws, data):
+    user = connected_users[ws]
+    chat = active_chats.get(data["chatname"])
+
+    if chat.public or user in chat.whitelist:
+        if ws not in focused_chats[chat.name]:
+            focused_chats[chat.name].append(ws)
+
+        await ws.send(json.dumps({
+            "event": "update-chat-detail",
+            "data": chat_detail_to_dict(chat)
+        }))
+    else:
+        await ws.send(json.dumps({
+            "event": "no-access",
+            "data": {
+                "message": "Sucks to be you, but you're not whitelisted, bro. Wanna join up?"
+            }
+        }))
+
+
+# More handlers like handle_post_message, handle_join_chat, etc. can be added here.
+
+
+# === DISPATCHER ===
+
+event_handlers = {
+    "register-user": handle_register_user,
+    "create-chat": handle_create_chat,
+    "open-chat": handle_open_chat,
+    # Add more handlers here...
+}
+
+
+# === MAIN HANDLER ===
+
+async def handler(ws, path):
+    try:
+        async for message in ws:
             try:
-                client, addr = await asyncio.wait_for(loop.sock_accept(self.server), timeout=1.0)
-                client.setblocking(False)
-                loop.create_task(self.handle_connection(client, addr))
-            except TimeoutError:
-                pass
+                payload = json.loads(message)
+                event = payload.get("event")
+                data = payload.get("data")
+
+                if event in event_handlers:
+                    await event_handlers[event](ws, data)
+                else:
+                    print(f"Unknown event: {event}")
+
             except Exception as e:
-                pprint(f"")
+                print(f"Error handling message: {e}")
 
-    async def handle_connection(self, client: socket.socket, addr: tuple):
-        loop = asyncio.get_running_loop()
-        try:
-            pprint(f"Connected by {addr}")
-            headers, data_part = await self.read_header(client)
-
-            request: Request = RequestFactory(headers.split("\r\n")).create_request()
-            request.body += data_part.decode()
-
-            if request.type in [REQUEST_TYPE.POST, REQUEST_TYPE.PUT]:
-                content_length = request.header.get_header("Content-Length")
-
-                if content_length is None:
-                    response = make_response("Bad Request", 400)
-                    await loop.sock_sendall(client, )
-                    client.close()
-                    return
-                
-                try:
-                    content_length = int(content_length)
-                except ValueError:
-                    response = make_response("Bad Request", 400)
-                    await loop.sock_sendall(client, )
-                    client.close()
-                    return 
-
-                current_length = len(request.body.encode())
-                while current_length < content_length:
-                    more = await loop.sock_recv(client, content_length - current_length)
-                    if not more:
-                        break
-                    request.body += more.decode()
-                    current_length += len(more)
-
-            await self.api.handle(loop, client, addr, request)
-            return
-
-        except Exception as e:
-            pprint(f"Error handling {addr}: {e}")
-            client.close()
+    finally:
+        # Cleanup on disconnect
+        if ws in connected_users:
+            del connected_users[ws]
+        for chat_ws_list in focused_chats.values():
+            if ws in chat_ws_list:
+                chat_ws_list.remove(ws)
+        await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
 
 
-    async def read_header(self, client: socket.socket) -> tuple[str, bytes]:
-        loop = asyncio.get_running_loop()
-        data = b""
-        while True:
-            part = await loop.sock_recv(client, 1024)
-            if not part:
-                break  # Connection closed
-            data += part
-            if b'\r\n\r\n' in data:
-                headers, data = data.split(b'\r\n\r\n', 1)
-                break
-        return headers.decode('utf-8'), data
+# === SERVER STARTUP ===
 
-    def __del__(self) -> None:
-        self.server.close()
+async def main(port_number: int):
+    async with websockets.serve(handler, "", port_number):
+        await asyncio.Future()  # Run forever

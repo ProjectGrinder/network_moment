@@ -675,5 +675,9 @@ async def handler(ws, path):
 
 async def main(port_number: int):
     """Start the WebSocket server."""
-    async with websockets.serve(handler, "", port_number):
-        await asyncio.Future()  # Run forever
+    try:
+        async with websockets.serve(handler, "", port_number):
+            print(f"WebSocket server started on port {port_number}")
+            await asyncio.Future()  # Run forever
+    except KeyboardInterrupt:
+        print("\nWebSocket server stopped by user")

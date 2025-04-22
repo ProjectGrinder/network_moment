@@ -29,11 +29,7 @@ import reportWebVitals from './reportWebVitals.ts'
 const rootElement = document.getElementById('app')
 if (rootElement && !rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement)
-  root.render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  )
+  root.render(<App />)
 }
 
 // If you want to start measuring performance in your app, pass a function

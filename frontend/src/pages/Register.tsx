@@ -4,10 +4,18 @@ import dog from '../assets/dog.jpg'
 import gamer from '../assets/gamer.jpg'
 import man from '../assets/man.jpg'
 import woman from '../assets/woman.jpg'
+import { useContext, useState } from 'react'
+import {
+  useWebSocketEvent,
+  WebSocketContext,
+} from '@/components/WebSocketProvider'
 
 function Register() {
   const assetImages = [anime, dog, gamer, man, woman]
+  const [selection, changeSelect] = useState(0)
+  const [username, changeUsername] = useState('')
   const navigate = useNavigate()
+  const socketManager = useContext(WebSocketContext)
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -15,7 +23,16 @@ function Register() {
         <h1 className="text-3xl font-bold mb-4 text-center">
           Welcome to MaiMai Message
         </h1>
-        <form>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            socketManager.subscribe('update-user-list', (_) => {
+              navigate('/chat')
+            })
+            if (username.length === 0) return
+            socketManager.send('register-user', { username, pfp: selection })
+          }}
+        >
           <div className="mb-4">
             <label
               htmlFor="username"
@@ -26,6 +43,9 @@ function Register() {
             <input
               type="text"
               id="username"
+              value={username}
+              onChange={(e) => changeUsername(e.currentTarget.value)}
+              required
               placeholder="Enter your username"
               className="border-2 border-gray-300 rounded-md p-2 w-full"
             />
@@ -44,7 +64,12 @@ function Register() {
                     type="radio"
                     name="profileImage"
                     value={image}
+                    checked={index === selection}
                     className="hidden peer"
+                    onClick={() => changeSelect(index)}
+                    onChange={(e) => {
+                      e.currentTarget.checked = index === selection
+                    }}
                   />
                   <img
                     src={image}
@@ -59,10 +84,6 @@ function Register() {
           <button
             type="submit"
             className="bg-blue-500 text-white rounded-md p-2 w-full"
-            onClick={(e) => {
-              e.preventDefault()
-              navigate('/chat')
-            }}
           >
             Login
           </button>

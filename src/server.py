@@ -107,12 +107,26 @@ async def handle_open_chat(ws, data):
     user = connected_users[ws]
     chat = active_chats.get(data["chatname"])
 
-    if chat and (chat.public or user in chat.whitelist):
+    if not chat:
+        await ws.send(json.dumps({
+            "event": "no-access",
+            "data": {
+                "message": "This chat doesn't exist, buddy."
+            }
+        }))
+        return
+    
+    if chat.public or user in chat.whitelist:
+        # Remove the user from all current focused chat lists
+        for ws_list in focused_chats.values():
+            if ws in ws_list:
+                ws_list.remove(ws)
+
         # Focus the chat for this user
         if ws not in focused_chats[chat.name]:
             focused_chats[chat.name].append(ws)
 
-        # Send the chat details to the client
+        # Send chat details to the user
         await ws.send(json.dumps({
             "event": "update-chat-detail",
             "data": chat_detail_to_dict(chat)
@@ -130,47 +144,166 @@ async def handle_open_chat(ws, data):
 async def handle_post_message(ws, data):
     """Handles posting a message in a chat."""
     user = connected_users[ws]
-    chat = active_chats.get(data["chatname"])
+    chatname = active_chats.get(data["chatname"])
+    message_text = data["message"]
 
-    if chat and (chat.public or user in chat.whitelist):
-        # Create a new Message object
-        message = Message(user=user, message=data["message"])
+    chat = active_chats.get(chatname)
+    if not chat:
+        return
 
-        # Add the message to the chat
-        chat.add_message(message)
+    # Check access
+    if not (chat.public or user in chat.whitelist):
+        await ws.send(json.dumps({
+            "event": "no-access",
+            "data": {
+                "message": "Sucks to be you, but you're not whitelisted, bro. Wanna join up?"
+            }
+        }))
+        return
 
-        # Broadcast the new message to all clients in the chat
-        await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused_chats.get(chat.name, []))
+    # Add message
+    new_msg = Message(user, message_text)
+    chat.add_message(new_msg)
+
+    # Send update to focused clients only
+    clients = focused_chats.get(chatname, [])
+    await broadcast("update-chat-detail", chat_detail_to_dict(chat), clients)
 
 
 async def handle_join_chat(ws, data):
     """Handles a request for joining a private chat."""
     user = connected_users[ws]
-    chat = active_chats.get(data["chatname"])
+    chatname = data["chatname"]
+    chat = active_chats.get(chatname)
 
-    if chat and not chat.public:
-        # Notify admins of the join request
-        await broadcast("join-request", {
-            "chatname": chat.name,
-            "user": user_to_dict(user)
-        }, chat.admin)
+    if not chat or chat.public:
+        return  # Public chats don’t need join requests
+
+    for client_ws, user in connected_users.items():
+        if user in chat.admin:
+            await client_ws.send(json.dumps({
+                "event": "join-request",
+                "data": {
+                    "chatname": chat.name,
+                    "user": user_to_dict(user)
+                }
+            }))
 
 
 async def handle_accept_join_request(ws, data):
     """Handles accepting a join request to add the user to the whitelist."""
-    chat = active_chats.get(data["chatname"])
-    user = connected_users[ws]
+    admin = connected_users[ws]
+    chatname = data["chatname"]
+    username = data["username"]
 
-    if chat and user in chat.admin:
-        # Find the user to be added
-        requested_user = next((u for u in connected_users.values() if u.name == data["username"]), None)
+    chat = active_chats.get(chatname)
+    if not chat or admin not in chat.admin:
+        return
 
-        if requested_user:
-            # Add the user to the chat's whitelist
-            chat.whitelist.append(requested_user)
+    # Find the user to add by username
+    user_to_add = None
+    for client_ws, user in connected_users.items():
+        if user.name == username:
+            user_to_add = user
 
-            # Notify all users in the chat about the updated details
-            await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused_chats.get(chat.name, []))
+    if not user_to_add:
+        return
+
+    if user_to_add not in chat.whitelist:
+        chat.whitelist.append(user_to_add)
+
+    # Update all focused clients
+    focused = focused_chats.get(chat.name, [])
+    await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+    # Also notify the newly whitelisted user if they're connected
+    for client_ws, user in connected_users.items():
+        if user == user_to_add:
+            await client_ws.send(json.dumps({
+                "event": "update-chat-detail",
+                "data": chat_detail_to_dict(chat)
+            }))
+            break
+
+async def handle_reject_join_request(ws, data):
+    # You could log or notify if needed
+    pass  # No broadcast, just ignore silently
+
+async def handle_remove_user(ws, data):
+    admin = connected_users[ws]
+    chatname = data["chatname"]
+    target_username = data["username"]
+
+    chat = active_chats.get(chatname)
+    if not chat or admin not in chat.admin:
+        return
+
+    # Find the target user and their websocket
+    for client_ws, user in connected_users.items():
+        if user.name == target_username:
+            if user in chat.whitelist:
+                chat.whitelist.remove(user)
+
+            if user in chat.admin:
+                chat.admin.remove(user)
+
+            # if they were focused on this chat, remove their focus.
+            if client_ws in focused_chats.get(chatname, []):
+                focused_chats[chatname].remove(client_ws)
+
+            # Notify the kicked user
+            await client_ws.send(json.dumps({
+                "event": "revoke-access",
+                "data": {
+                    "chatname": chatname
+                }
+            }))
+            break  # Stop once we've found and handled the user
+
+    # Notify all focused clients with updated chat detail
+    focused = focused_chats.get(chatname, [])
+    await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+async def handle_inbox(ws, data):
+    """Sends a message to the target client's inbox."""
+    sender = connected_users.get(ws)
+    target_username = data["username"]
+    message = data["message"]
+
+    for client_ws, user in connected_users.items():
+        if user.name == target_username:
+            await client_ws.send(json.dumps({
+                "event": "update-inbox",
+                "data": {
+                    "sender": user_to_dict(sender),
+                    "message": message
+                }
+            }))
+            break
+
+async def handle_add_admin(ws, data):
+    """Adds a user as an admin to the chatroom."""
+    admin = connected_users.get(ws)
+    chatname = data["chatname"]
+    target_username = data["username"]
+    chat = active_chats.get(chatname)
+    if not chat or admin not in chat.admin:
+        return
+    
+    user_to_add = None
+    for client_ws, user in connected_users.items():
+        if user.name == target_username:
+            user_to_add = user
+
+    if not user_to_add:
+        return
+    
+    if user_to_add not in chat.admin:
+        chat.admin.append(user_to_add)
+        await client_ws.send(json.dumps({
+            "event": "update-chat-detail",
+            "data": chat_detail_to_dict(chat)
+        }))
 
 
 # === DISPATCHER ===
@@ -182,6 +315,10 @@ event_handlers = {
     "post-message": handle_post_message,
     "join-chat": handle_join_chat,
     "accept-join-request": handle_accept_join_request,
+    "reject-join-request": handle_reject_join_request,
+    "remove-user": handle_remove_user,
+    "inbox": handle_inbox,
+    "add-admin": handle_add_admin
     # Add more handlers here as needed...
 }
 

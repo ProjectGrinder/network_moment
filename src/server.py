@@ -430,39 +430,75 @@ async def handle_reject_join_request(ws, data):
         await ws.send(json.dumps({"event": "error", "data": {"event-type": "reject-join-request", "message": "Internal server error"}}))
 
 async def handle_remove_user(ws, data):
-    admin = connected_users[ws]
-    chatname = data["chatname"]
-    target_username = data["username"]
+    """Handles removing a user from a chat, including other admins."""
+    try:
+        # Validate input data
+        if not isinstance(data, dict):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "Invalid data format"}}))
+            return
 
-    chat = active_chats.get(chatname)
-    if not chat or admin not in chat.admin:
-        return
+        chatname = data.get("chatname")
+        target_username = data.get("username")
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "Invalid or missing chatname"}}))
+            return
+        if not target_username or not isinstance(target_username, str):
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "Invalid or missing username"}}))
+            return
 
-    # Find the target user and their websocket
-    for client_ws, user in connected_users.items():
-        if user.name == target_username:
-            if user in chat.whitelist:
-                chat.whitelist.remove(user)
+        # Validate admin user
+        admin = connected_users.get(ws)
+        if not admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "User not connected"}}))
+            return
 
-            if user in chat.admin:
-                chat.admin.remove(user)
+        # Validate chat existence and admin privileges
+        chat = active_chats.get(chatname)
+        if not chat:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "Chat does not exist"}}))
+            return
+        if admin not in chat.admin:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "You are not an admin of this chat"}}))
+            return
 
-            # if they were focused on this chat, remove their focus.
-            if client_ws in focused_chats.get(chatname, []):
-                focused_chats[chatname].remove(client_ws)
+        # Find the target user and their websocket
+        target_user_ws = None
+        target_user = None
+        for client_ws, user in connected_users.items():
+            if user.name == target_username:
+                target_user_ws = client_ws
+                target_user = user
+                break
 
-            # Notify the kicked user
-            await client_ws.send(json.dumps({
-                "event": "revoke-access",
-                "data": {
-                    "chatname": chatname
-                }
-            }))
-            break  # Stop once we've found and handled the user
+        if not target_user:
+            await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "User not found"}}))
+            return
 
-    # Notify all focused clients with updated chat detail
-    focused = focused_chats.get(chatname, [])
-    await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+        # Remove the user from the chat's whitelist and admin list
+        if target_user in chat.whitelist:
+            chat.whitelist.remove(target_user)
+        if target_user in chat.admin:
+            chat.admin.remove(target_user)
+
+        # Remove the user's focus on the chat if applicable
+        if target_user_ws in focused_chats.get(chatname, []):
+            focused_chats[chatname].remove(target_user_ws)
+
+        # Notify the removed user
+        await target_user_ws.send(json.dumps({
+            "event": "revoke-access",
+            "data": {
+                "chatname": chatname
+            }
+        }))
+
+        # Notify all focused clients with updated chat details
+        focused = focused_chats.get(chatname, [])
+        await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+    except Exception as e:
+        print(f"Error in handle_remove_user: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"event-type": "remove-user", "message": "Internal server error"}}))
 
 async def handle_inbox(ws, data):
     """Sends a message to the target client's inbox."""

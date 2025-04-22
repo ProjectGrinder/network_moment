@@ -121,18 +121,42 @@ async def handle_register_user(ws, data):
 
 async def handle_create_chat(ws, data):
     """Handles creating a new chat."""
-    user = connected_users[ws]
-    chat = Chat(name=data["chatname"], admin=user, public=data["public"])
-    
-    if not data["public"]:
-        chat.whitelist.append(user)
+    try:
+        # Validate input data
+        chatname = data.get("chatname")
+        public = data.get("public")
 
-    active_chats[chat.name] = chat
-    focused_chats[chat.name] = []
+        if not chatname or not isinstance(chatname, str):
+            await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid or missing chatname"}}))
+            return
+        if not isinstance(public, bool):
+            await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid or missing public flag"}}))
+            return
 
-    # Broadcast the new chat to all clients
-    await broadcast("update-chat-list", [chat_to_dict(c) for c in active_chats.values()], connected_users.keys())
+        # Ensure chatname is unique
+        if chatname in active_chats:
+            await ws.send(json.dumps({"event": "error", "data": {"message": "Chatname already exists"}}))
+            return
 
+        # Create the chat
+        user = connected_users.get(ws)
+        if not user:
+            await ws.send(json.dumps({"event": "error", "data": {"message": "User not connected"}}))
+            return
+
+        chat = Chat(name=chatname, admin=user, public=public)
+
+        if not public:
+            chat.whitelist.append(user)
+
+        active_chats[chat.name] = chat
+        focused_chats[chat.name] = []
+
+        # Broadcast the new chat to all clients
+        await broadcast("update-chat-list", [chat_to_dict(c) for c in active_chats.values()], connected_users.keys())
+    except Exception as e:
+        print(f"Error in handle_create_chat: {e}")
+        await ws.send(json.dumps({"event": "error", "data": {"message": "Internal server error"}}))
 
 async def handle_open_chat(ws, data):
     """Handles opening a chat."""

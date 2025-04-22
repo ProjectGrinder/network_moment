@@ -58,7 +58,12 @@ def broadcast(event_type, data, clients):
         except asyncio.TimeoutError:
             print(f"Timeout: Failed to send message to client {client}")
         except websockets.ConnectionClosed:
-            print(f"Connection closed: Failed to send message to client {client}")
+            print(f"Connection closed: Removing client {client}")
+            if client in connected_users:
+                del connected_users[client]
+            for chat_ws_list in focused_chats.values():
+                if client in chat_ws_list:
+                    chat_ws_list.remove(client)
         except Exception as e:
             print(f"Error sending message to client {client}: {e}")
 
@@ -652,24 +657,27 @@ event_handlers = {
 
 async def handler(ws):
     """Main WebSocket handler with heartbeat mechanism."""
-    try:
-        # Start a background task to send pings
-        async def send_heartbeat():
-            while True:
+    disconnect_event = asyncio.Event()
+    
+    # Start a background task to send pings
+    async def send_heartbeat():
+        try:
+            while not disconnect_event.is_set():
                 try:
-                    await ws.ping()
+                    await ws.send(json.dumps({"event": "heartbeat", "data": {"ping": "!"}}))
                     await asyncio.sleep(30)  # Send a ping every 30 seconds
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
                     print(f"Heartbeat error: {e}")
+                    disconnect_event.set()
                     break
+        finally:
+            disconnect_event.set()
 
-            # Signal termination by raising an exception
-            raise ConnectionError("Heartbeat task terminated")
+    heartbeat_task = asyncio.create_task(send_heartbeat())
 
-        heartbeat_task = asyncio.create_task(send_heartbeat())
-
+    try:
         async for message in ws:
             try:
                 # Parse and validate the payload
@@ -691,14 +699,17 @@ async def handler(ws):
 
             except json.JSONDecodeError:
                 await ws.send(json.dumps({"event": "error", "data": {"message": "Invalid JSON format"}}))
+            except websockets.ConnectionClosed:
+                print(f"Connection closed for client {ws}")
             except Exception as e:
                 print(f"Error handling message: {e}")
                 await ws.send(json.dumps({"event": "error", "data": {"message": "Internal server error"}}))
 
-    except ConnectionError as e:
-        print(f"Connection error: {e}")
+    except Exception as e:
+        print(f"Unexpected error in handler: {e}")
     finally:
         # Cancel the heartbeat task
+        disconnect_event.set()
         heartbeat_task.cancel()
         try:
             await heartbeat_task

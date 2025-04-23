@@ -2,7 +2,7 @@ import ChatMessageBox from '@/components/ChatMessageBox'
 import PrivateChatBox from '@/components/PrivateChatBox'
 import GroupChatBox from '@/components/GroupChatBox'
 import UserChatBox from '@/components/UserBox'
-import { use, useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import {
   useWebSocketEvent,
   WebSocketContext,
@@ -10,8 +10,23 @@ import {
 import Modal from '@/components/Modal'
 import ChatArea from '@/components/ChatArea'
 import Request from '@/components/Request'
+import anime from '../assets/anime.jpg'
+import dog from '../assets/dog.jpg'
+import gamer from '../assets/gamer.jpg'
+import man from '../assets/man.jpg'
+import woman from '../assets/woman.jpg'
+import { useNavigate } from 'react-router-dom'
 
+const assetImages = [anime, dog, gamer, man, woman]
 function Chat() {
+  const socketManager = useContext(WebSocketContext)
+  const redirect = useNavigate()
+
+  if (!socketManager.currentUser) {
+    console.log(socketManager.currentUser)
+    window.location.href = "/"
+  }
+
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [userList, setUserList] = useState<any[]>([])
   const [chatList, setChatList] = useState<any[]>([])
@@ -25,7 +40,6 @@ function Chat() {
   const [displayMessage, setDisplayMessage] = useState<any | null>(null)
   const [isNoAccess, setIsNoAccess] = useState(false)
   const [currentChat, setCurrentChat] = useState('')
-  const socketManager = useContext(WebSocketContext)
 
   useWebSocketEvent('update-user-list', (data) => {
     setUserList(data)
@@ -214,6 +228,29 @@ function Chat() {
               checked={isPublic}
               onChange={(e) => setIsPublic(e.target.checked)}
             />
+          </div>
+          <div className="grid grid-cols-3 gap-5">
+              {assetImages.map((image, index) => (
+                <label key={index} className="flex flex-col items-center">
+                  <input
+                    type="radio"
+                    name="profileImage"
+                    value={image}
+                    checked={index === selectedImage}
+                    className="hidden peer"
+                    onClick={() => setSelectedImage(index)}
+                    onChange={(e) => {
+                      e.currentTarget.checked = index === selectedImage
+                    }}
+                  />
+                  <img
+                    src={image}
+                    alt={`Profile ${index + 1}`}
+                    className="w-20 h-20 object-cover rounded-full border-2 border-gray-300 
+                    cursor-pointer hover:border-blue-500 peer-checked:ring-2 peer-checked:ring-blue-500"
+                  />
+                </label>
+              ))}
           </div>
           <button
             className="bg-blue-500 text-white rounded-md p-2 w-full"

@@ -1,6 +1,7 @@
 type Listener<T = any> = (payload: T) => void
 
 export class WebSocketManager {
+  public currentUser: string | null = null
   private socket: WebSocket | null = null
   private listeners: Map<string, Set<Listener>> = new Map()
 

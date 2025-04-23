@@ -1,12 +1,22 @@
+import anime from '../assets/anime.jpg'
+import dog from '../assets/dog.jpg'
+import gamer from '../assets/gamer.jpg'
+import man from '../assets/man.jpg'
+import woman from '../assets/woman.jpg'
+
+const images = [anime, dog, gamer, man, woman]
+
 interface GroupChatBoxProps {
   name: string
-  imageUrl: string
+  imageNum: number
+  isPublic: boolean
   onClick: () => void
 }
 
 const FriendBox: React.FC<GroupChatBoxProps> = ({
   name,
-  imageUrl,
+  imageNum,
+  isPublic,
   onClick,
 }) => {
   return (
@@ -26,7 +36,7 @@ const FriendBox: React.FC<GroupChatBoxProps> = ({
       }}
     >
       <img
-        src={imageUrl}
+        src={images[imageNum]}
         alt={name}
         className="image"
         style={{

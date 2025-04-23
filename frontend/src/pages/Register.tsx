@@ -17,6 +17,11 @@ function Register() {
   const navigate = useNavigate()
   const socketManager = useContext(WebSocketContext)
 
+  useWebSocketEvent('update-user-list', (data) => {
+    socketManager.currentUser = username
+    navigate('/chat')
+  })
+
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <div className="bg-white p-6 rounded-md shadow-md w-1/2">
@@ -26,9 +31,6 @@ function Register() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            socketManager.subscribe('update-user-list', (_) => {
-              navigate('/chat')
-            })
             if (username.length === 0) return
             socketManager.send('register-user', { username, pfp: selection })
           }}

@@ -1,127 +1,246 @@
 import ChatMessageBox from '@/components/ChatMessageBox'
 import PrivateChatBox from '@/components/PrivateChatBox'
 import GroupChatBox from '@/components/GroupChatBox'
+import UserChatBox from '@/components/UserBox'
+import { use, useContext, useEffect, useState } from 'react'
+import {
+  useWebSocketEvent,
+  WebSocketContext,
+} from '@/components/WebSocketProvider'
+import Modal from '@/components/Modal'
+import ChatArea from '@/components/ChatArea'
+import Request from '@/components/Request'
 
 function Chat() {
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [userList, setUserList] = useState<any[]>([])
+  const [chatList, setChatList] = useState<any[]>([])
+  const [user, setUser] = useState('')
+  const [message, setMessage] = useState('')
+  const [inbox, setInbox] = useState<any[]>([])
+  const [request, setRequest] = useState<any | null>(null)
+  const [chatroomName, setChatroomName] = useState('')
+  const [isPublic, setIsPublic] = useState(false)
+  const [selectedImage, setSelectedImage] = useState(0)
+  const [displayMessage, setDisplayMessage] = useState<any | null>(null)
+  const [isNoAccess, setIsNoAccess] = useState(false)
+  const [currentChat, setCurrentChat] = useState('')
+  const socketManager = useContext(WebSocketContext)
+
+  useWebSocketEvent('update-user-list', (data) => {
+    setUserList(data)
+    console.log(data)
+  })
+
+  useWebSocketEvent('update-chat-list', (data) => {
+    setChatList(data)
+    console.log(data)
+  })
+
+  useWebSocketEvent('update-inbox', (data) => {
+    setInbox([...inbox, data])
+    console.log(data)
+  })
+
+  useWebSocketEvent('join-request', (data) => {
+    setRequest(data)
+    console.log(data)
+  })
+
+  useWebSocketEvent('update-chat-detail', (data) => {
+    setIsNoAccess(false)
+    setDisplayMessage(data)
+    console.log(data)
+  })
+
+  useWebSocketEvent('revoke-access', (data) => {
+    setDisplayMessage(null)
+    console.log(data)
+  })
+
+  useWebSocketEvent('no-access', (data) => {
+    setIsNoAccess(true)
+    setDisplayMessage(null)
+    console.log(data)
+  })
+
+  useWebSocketEvent('resolve-join-request', (data) => {
+    setRequest(null)
+    setIsNoAccess(false)
+    socketManager?.send('open-chat', { chatname: data.chatname })
+    console.log(data.chatname)
+  })
+
+  useWebSocketEvent('delete-chat', (data) => {
+    socketManager?.send('get-data', {})
+    if (currentChat == data.chatname) {
+      setDisplayMessage(null)
+      setCurrentChat('')
+    }
+  })
+
+  useEffect(() => {
+    socketManager?.send('get-data', {})
+  }, [])
+
+  const handleCreateChatroom = () => {
+    socketManager?.send('create-chat', {
+      chatname: chatroomName,
+      public: isPublic,
+      pfp: selectedImage,
+    })
+    setIsModalOpen(false)
+  }
+
+  const handleJoinChatroom = (username) => {
+    socketManager?.send('accept-join-request', {
+      chatname: chatroomName,
+      username: username,
+    })
+    setIsModalOpen(false)
+  }
+
   return (
-    <div className="flex h-screen">
-      {/* Left side */}
-      <div className="w-1/4 bg-blue-100 p-6 flex flex-col">
-        {/* Top section */}
-        <div className="flex-1 mb-4 overflow-y-auto-4">
-          <h1 className="text-2xl font-bold mb-4">Hello User</h1>
-          <h2 className="text-xl font-bold mb-4">Chatroom</h2>
-          <button className="bg-blue-500 text-white rounded-md p-2 mb-4 w-full">
-            Create Chatroom
-          </button>
-          <GroupChatBox
-            name="Lonely People"
-            imageUrl="https://globig.co/wp-content/uploads/2018/11/bigstock-Best-Internet-Concept-of-globa-159909171-1-1080x675.jpg"
-            onClick={() => alert('here')}
-          />
-        </div>
-        {/* Bottom section */}
-        <div className="flex-1 overflow-y-auto">
-          <h2 className="text-xl font-bold mb-4">Inbox</h2>
-          {/* <input
-            type="text"
-            placeholder="User"
-            className="border-2 border-gray-300 rounded-md p-2 mb-4 w-full"
-          />
-          <input
-            type="text"
-            placeholder="Message"
-            className="border-2 border-gray-300 rounded-md p-2 mb-4 w-full"
-          />
-          <button className="bg-blue-500 text-white rounded-md p-2 mb-4 w-full">
-            Send Message
-          </button> */}
-          <PrivateChatBox
-            name="Jane"
-            imageUrl="https://i.pinimg.com/736x/cd/df/d1/cddfd18ca77217f324ee9b5b5746278c.jpg"
-            onClick={() => alert('SUI')}
-          />
-          <PrivateChatBox
-            name="Jack"
-            imageUrl="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQA7zN7F5jvD-unsnN2itVT9x5Q80icFWa27A&s"
-            onClick={() => alert(':D')}
-          />
-        </div>
-      </div>
-      {/* Right side */}
-      <div className="w-3/4 bg-green-100 p-6">
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '95vh',
-            justifyContent: 'space-between',
-          }}
-        >
-          <h1
-            style={{
-              margin: 0,
-              padding: '10px',
-              fontWeight: 'bold',
-              fontSize: '25px',
-            }}
-          >
-            Lonely People
-          </h1>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              padding: '10px',
-            }}
-          >
+    <>
+      <div className="flex h-screen">
+        {/* Left side */}
+        <div className="w-1/4 bg-blue-100 p-6 flex flex-col">
+          {/* Top section */}
+          <div className="flex-1 mb-4 overflow-y-auto-4">
+            <h1 className="text-2xl font-bold mb-4">
+              Hello {socketManager.currentUser}
+            </h1>
+            <h2 className="text-xl font-bold mb-4">Chatroom</h2>
             <button
-              className="bg-red-500 text-white rounded-md"
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-              onClick={() => alert('Button clicked!')}
+              className="bg-blue-500 text-white rounded-md p-2 mb-4 w-full"
+              onClick={() => setIsModalOpen(true)}
             >
-              Kick Member
+              Create Chatroom
             </button>
+            <ul className="overflow-y-auto max-h-60">
+              {chatList.map((chat, index) => (
+                <li key={index} className="mb-2">
+                  <GroupChatBox
+                    name={chat.chatname}
+                    imageNum={chat.pfp}
+                    isPublic={chat.public}
+                    onClick={() => {
+                      socketManager?.send('open-chat', {
+                        chatname: chat.chatname,
+                      })
+                      setCurrentChat(chat.chatname)
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
-          <div style={{ flex: 1 }}>
-            <ChatMessageBox
-              name="Hoshimachi Suisei"
-              message="Hello, how are you?"
-            />
+          <div>
+            <h2 className="text-xl font-bold mb-4">User List</h2>
+            <ul className="overflow-y-auto max-h-60">
+              {userList.map((user, index) => (
+                <li key={index} className="mb-2">
+                  <UserChatBox name={user.username} imageNum={user.pfp} />
+                </li>
+              ))}
+            </ul>
           </div>
-          <div
-            style={{
-              bottom: 0,
-              backgroundColor: '#fff',
-              padding: '10px',
-              borderTop: '1px solid #ccc',
-            }}
-          >
+          {/* Bottom section */}
+          <div className="flex-1 overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">Inbox</h2>
             <input
               type="text"
-              placeholder="Type your message..."
-              style={{ width: '100%', padding: '10px' }}
+              placeholder="User"
+              className="border-2 border-gray-300 rounded-md p-2 mb-4 w-full"
+              value={user}
+              onChange={(e) => setUser(e.currentTarget.value)}
+            />
+            <input
+              type="text"
+              placeholder="Message"
+              className="border-2 border-gray-300 rounded-md p-2 mb-4 w-full"
+              value={message}
+              onChange={(e) => setMessage(e.currentTarget.value)}
             />
             <button
-              className="bg-blue-500 text-white rounded-md"
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
+              className="bg-blue-500 text-white rounded-md p-2 mb-4 w-full"
+              onClick={(e) => {
+                e.preventDefault()
+                socketManager?.send('inbox', {
+                  username: user,
+                  message: message,
+                })
               }}
             >
-              Send
+              Send Message
             </button>
+            <ul>
+              {inbox.map((user, index) => (
+                <li key={index} className="mb-2">
+                  <PrivateChatBox
+                    name={user.sender.username}
+                    imageNum={user.sender.pfp}
+                    onClick={() => alert(user.message)}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
+        {/* Right side */}
+        <div className="w-3/4 bg-green-100 p-6">
+          {isNoAccess ? (
+            <Request chatname={currentChat} />
+          ) : (
+            displayMessage && <ChatArea {...displayMessage} />
+          )}
+        </div>
+        {/* Modal for creating chatroom */}
       </div>
-    </div>
+      {isModalOpen && (
+        <Modal onClose={() => setIsModalOpen(false)}>
+          <h2 className="text-xl font-bold mb-4">Create Chatroom</h2>
+          <input
+            type="text"
+            placeholder="Chatroom Name"
+            className="border-2 border-gray-300 rounded-md p-2 mb-4 w-full"
+            value={chatroomName}
+            onChange={(e) => setChatroomName(e.target.value)}
+          />
+          <div className="flex items-center mb-4">
+            <label className="mr-2">Public:</label>
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+            />
+          </div>
+          <button
+            className="bg-blue-500 text-white rounded-md p-2 w-full"
+            onClick={handleCreateChatroom}
+          >
+            Create
+          </button>
+        </Modal>
+      )}
+      {request && (
+        <Modal
+          onClose={() => {
+            setRequest(null)
+          }}
+        >
+          <h2 className="text-xl font-bold mb-4">Join Request</h2>
+          <p>Request from {request.user.username}</p>
+          <p>To chatroom {request.chatname}</p>
+          <button
+            className="bg-blue-500 text-white rounded-md p-2 w-full"
+            onClick={() => handleJoinChatroom(request.user.username)}
+          >
+            Accept
+          </button>
+        </Modal>
+      )}
+    </>
   )
 }
 

@@ -6,21 +6,15 @@ import woman from '../assets/woman.jpg'
 
 const images = [anime, dog, gamer, man, woman]
 
-interface PrivateChatBoxProps {
+interface UserChatBoxProps {
   name: string
   imageNum: number
-  onClick: () => void
 }
 
-const PrivateChatBox: React.FC<PrivateChatBoxProps> = ({
-  name,
-  imageNum,
-  onClick,
-}) => {
+const UserChatBox: React.FC<UserChatBoxProps> = ({ name, imageNum }) => {
   return (
     <div
       className="box"
-      onClick={onClick}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -54,4 +48,4 @@ const PrivateChatBox: React.FC<PrivateChatBoxProps> = ({
   )
 }
 
-export default PrivateChatBox
+export default UserChatBox

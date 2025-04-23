@@ -157,9 +157,7 @@ async def handle_create_chat(ws, data):
             return
 
         chat = Chat(name=chatname, pfp=pfp, admin=user, public=public)
-
-        if not public:
-            chat.whitelist.append(user)
+        chat.whitelist.append(user)
 
         active_chats[chat.name] = chat
         focused_chats[chat.name] = []
@@ -203,6 +201,10 @@ async def handle_open_chat(ws, data):
 
         # Check access permissions
         if chat.public or user in chat.whitelist:
+            # If the chat is public, add the user to the whitelist
+            if chat.public and user not in chat.whitelist:
+                chat.whitelist.append(user)
+
             # Remove the user from all current focused chat lists
             for ws_list in focused_chats.values():
                 if ws in ws_list:

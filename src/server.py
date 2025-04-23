@@ -699,7 +699,7 @@ event_handlers = {
 async def handler(ws):
     """Main WebSocket handler with heartbeat mechanism."""
     disconnect_event = asyncio.Event()
-    
+
     # Start a background task to send pings
     async def send_heartbeat():
         try:
@@ -758,13 +758,37 @@ async def handler(ws):
             pass
 
         # Cleanup on disconnect
-        if ws in connected_users:
-            del connected_users[ws]
+        user = connected_users.pop(ws, None)
+        if user:
+            # Remove the user from all active chats
+            chats_to_delete = []
+            for chatname, chat in active_chats.items():
+                if user in chat.whitelist:
+                    chat.whitelist.remove(user)
+                if user in chat.admin:
+                    chat.admin.remove(user)
+                # If no admins remain, mark the chat for deletion
+                if len(chat.admin) == 0:
+                    chats_to_delete.append(chatname)
+                else:
+                    # Broadcast updated chat details if the chat isn't marked for deletion
+                    focused = focused_chats.get(chatname, [])
+                    await broadcast("update-chat-detail", chat_detail_to_dict(chat), focused)
+
+            # Delete chats with no admins and notify clients
+            for chatname in chats_to_delete:
+                del active_chats[chatname]
+                if chatname in focused_chats:
+                    del focused_chats[chatname]
+                await broadcast("delete-chat", {"chatname": chatname}, connected_users.keys())
+
+        # Remove the WebSocket from focused chats
         for chat_ws_list in focused_chats.values():
             if ws in chat_ws_list:
                 chat_ws_list.remove(ws)
-        await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
 
+        # Broadcast updated user list
+        await broadcast("update-user-list", [user_to_dict(u) for u in connected_users.values()], connected_users.keys())
 # === SERVER STARTUP ===
 
 async def main(port_number: int):
